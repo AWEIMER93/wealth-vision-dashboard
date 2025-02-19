@@ -75,9 +75,31 @@ export const useChat = () => {
                 total_amount: stock.current_price * shares,
                 portfolio_id: portfolio.id,
                 stock_id: stock.id,
-              });
+              })
+              .select()
+              .single();
             
             if (transactionError) throw transactionError;
+            
+            // Update portfolio total holding
+            const { data: updatedPortfolio } = await supabase
+              .from('portfolios')
+              .select('*')
+              .eq('user_id', user!.id)
+              .single();
+
+            // Trigger a real-time update for the portfolio
+            if (updatedPortfolio) {
+              const totalHolding = (updatedPortfolio.total_holding || 0) + 
+                (type === 'BUY' ? 1 : -1) * (stock.current_price * shares);
+              
+              await supabase
+                .from('portfolios')
+                .update({
+                  total_holding: totalHolding,
+                })
+                .eq('id', portfolio.id);
+            }
             
             return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at $${stock.current_price.toFixed(2)} per share. Total amount: $${(stock.current_price * shares).toFixed(2)}`;
           } catch (error: any) {

@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.1';
@@ -24,7 +23,6 @@ const processTradeRequest = (message: string) => {
     const shares = parseInt(match![1]);
     let symbol = match![2].toUpperCase();
     
-    // Handle common stock name variations
     const stockMappings: { [key: string]: string } = {
       'APPLE': 'AAPL',
       'TESLA': 'TSLA',
@@ -67,6 +65,7 @@ serve(async (req) => {
     // Process trade request
     const tradeRequest = processTradeRequest(message);
     let additionalContext = '';
+    let skipAI = false;
     
     if (tradeRequest) {
       const supabase = createSupabaseClient();
@@ -78,75 +77,71 @@ serve(async (req) => {
       
       if (stock) {
         const totalAmount = stock.current_price * tradeRequest.shares;
-        additionalContext = `\nCurrent ${tradeRequest.symbol} price: $${stock.current_price}
-Total ${tradeRequest.action} amount: $${totalAmount.toFixed(2)}
-To confirm this trade, please enter PIN: 1234`;
+        additionalContext = `I'll help you ${tradeRequest.action} ${tradeRequest.shares} shares of ${tradeRequest.symbol}. The current price is $${stock.current_price.toFixed(2)} per share, for a total of $${totalAmount.toFixed(2)}. To confirm this trade, please enter PIN: 1234`;
+        skipAI = true;
       }
     }
 
-    // Get user's portfolio data
-    const supabase = createSupabaseClient();
-    const { data: portfolio, error: portfolioError } = await supabase
-      .from('portfolios')
-      .select(`
-        *,
-        stocks (*)
-      `)
-      .eq('user_id', userId)
-      .single();
+    let reply = '';
+    
+    if (!skipAI) {
+      // Get user's portfolio data
+      const supabase = createSupabaseClient();
+      const { data: portfolio, error: portfolioError } = await supabase
+        .from('portfolios')
+        .select(`
+          *,
+          stocks (*)
+        `)
+        .eq('user_id', userId)
+        .single();
 
-    if (portfolioError) {
-      console.error('Portfolio error:', portfolioError);
-      throw new Error('Failed to fetch portfolio data');
+      if (portfolioError) {
+        console.error('Portfolio error:', portfolioError);
+        throw new Error('Failed to fetch portfolio data');
+      }
+
+      // Call OpenAI API with context
+      const completion = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAIApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a friendly and helpful portfolio management assistant named Alex. You help users manage their investments and execute trades in a conversational manner.
+              
+              Current portfolio context:
+              - Total Holdings: $${portfolio.total_holding?.toLocaleString() ?? '0'}
+              - Total Profit: ${portfolio.total_profit?.toFixed(2) ?? '0'}%
+              - Active Stocks: ${portfolio.active_stocks ?? '0'}
+              
+              Style guide:
+              - Be conversational and friendly, use "I" and refer to the user directly
+              - Keep responses concise but natural
+              - Format numbers with commas and 2 decimal places
+              - For trades, clearly confirm the action and include all relevant details
+              - Use everyday language, avoid jargon unless necessary`,
+            },
+            { role: 'user', content: message },
+          ],
+        }),
+      });
+
+      if (!completion.ok) {
+        throw new Error('Failed to get response from OpenAI');
+      }
+
+      const data = await completion.json();
+      reply = data.choices[0].message.content;
     }
 
-    // Call OpenAI API with context
-    const completion = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a friendly and helpful portfolio management assistant named Alex. You help users manage their investments and execute trades in a conversational manner.
-            
-            Current portfolio context:
-            - Total Holdings: $${portfolio.total_holding?.toLocaleString() ?? '0'}
-            - Total Profit: ${portfolio.total_profit?.toFixed(2) ?? '0'}%
-            - Active Stocks: ${portfolio.active_stocks ?? '0'}
-            
-            Style guide:
-            - Be conversational and friendly, use "I" and refer to the user directly
-            - Keep responses concise but natural
-            - Format numbers with commas and 2 decimal places
-            - For trades, clearly confirm the action and include all relevant details
-            - Use everyday language, avoid jargon unless necessary
-            
-            Example responses:
-            - "I see you're interested in buying Apple stock. The current price is $150.25 per share..."
-            - "Based on your portfolio performance, I notice a strong upward trend in the tech sector..."
-            - "Let me help you with that trade. Just to confirm, you want to sell 10 shares of Tesla..."`,
-          },
-          { role: 'user', content: message },
-        ],
-      }),
-    });
-
-    if (!completion.ok) {
-      throw new Error('Failed to get response from OpenAI');
-    }
-
-    const data = await completion.json();
-    let reply = data.choices[0].message.content;
-
-    // Add trade context if available
-    if (additionalContext) {
-      reply += additionalContext;
-    }
+    // Use trade context or AI response
+    reply = skipAI ? additionalContext : reply;
 
     return new Response(
       JSON.stringify({ reply }),
