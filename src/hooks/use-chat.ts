@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/providers/AuthProvider";
 
 interface Message {
   role: 'assistant' | 'user';
@@ -12,19 +13,18 @@ export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const sendMessage = async (content: string) => {
     try {
+      if (!user) {
+        throw new Error('Authentication required');
+      }
+
       setIsLoading(true);
       
       // Add user message to chat
       setMessages(prev => [...prev, { role: 'user', content }]);
-
-      // Get current session
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error('Authentication required');
-      }
 
       // Call the edge function
       const { data, error } = await supabase.functions.invoke('chat', {

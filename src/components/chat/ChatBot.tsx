@@ -6,6 +6,7 @@ import { MessageCircle, X } from "lucide-react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
 import { useChat } from "@/hooks/use-chat";
+import { useAuth } from "@/providers/AuthProvider";
 
 // Quick action types
 interface QuickAction {
@@ -24,6 +25,12 @@ const quickActions: QuickAction[] = [
 export const ChatBot = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { messages, isLoading, sendMessage } = useChat();
+  const { user } = useAuth();
+  
+  // Don't render the chat bot if user is not authenticated
+  if (!user) {
+    return null;
+  }
   
   const handleQuickAction = (action: string) => {
     sendMessage(action);
