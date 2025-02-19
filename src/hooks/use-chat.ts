@@ -47,27 +47,30 @@ export const useChat = () => {
           }
           
           try {
-            // Get current stock price
-            const { data: stock } = await supabase
+            // Start a transaction
+            // Get current stock price and stock data
+            const { data: stock, error: stockError } = await supabase
               .from('stocks')
-              .select('current_price, id')
+              .select('*')
               .eq('symbol', symbol)
               .single();
             
-            if (!stock) {
+            if (stockError || !stock) {
               throw new Error('Stock not found');
             }
             
             // Get user's portfolio
-            const { data: portfolio } = await supabase
+            const { data: portfolio, error: portfolioError } = await supabase
               .from('portfolios')
-              .select('id')
+              .select('*')
               .eq('user_id', user!.id)
               .single();
             
-            if (!portfolio) {
+            if (portfolioError || !portfolio) {
               throw new Error('Portfolio not found');
             }
+
+            const tradeAmount = stock.current_price * shares;
             
             // Create transaction
             const { error: transactionError } = await supabase
@@ -76,37 +79,75 @@ export const useChat = () => {
                 type,
                 shares,
                 price_per_unit: stock.current_price,
-                total_amount: stock.current_price * shares,
+                total_amount: tradeAmount,
                 portfolio_id: portfolio.id,
                 stock_id: stock.id,
-              })
-              .select()
-              .single();
+              });
             
             if (transactionError) throw transactionError;
-            
-            // Get current portfolio total holding
-            const { data: updatedPortfolio } = await supabase
-              .from('portfolios')
+
+            // Update or create stock holding
+            const { data: existingStock } = await supabase
+              .from('stocks')
               .select('*')
-              .eq('user_id', user!.id)
+              .eq('portfolio_id', portfolio.id)
+              .eq('symbol', symbol)
               .single();
 
-            // Update portfolio total holding
-            if (updatedPortfolio) {
-              const totalHolding = (updatedPortfolio.total_holding || 0) + 
-                (type === 'BUY' ? 1 : -1) * (stock.current_price * shares);
-              
+            if (existingStock) {
+              // Update existing stock
+              const newShares = type === 'BUY' 
+                ? existingStock.shares + shares 
+                : existingStock.shares - shares;
+
+              if (newShares > 0) {
+                await supabase
+                  .from('stocks')
+                  .update({ shares: newShares })
+                  .eq('id', existingStock.id);
+              } else {
+                // Remove stock if no shares left
+                await supabase
+                  .from('stocks')
+                  .delete()
+                  .eq('id', existingStock.id);
+              }
+            } else if (type === 'BUY') {
+              // Create new stock holding
               await supabase
-                .from('portfolios')
-                .update({
-                  total_holding: totalHolding,
-                })
-                .eq('id', portfolio.id);
+                .from('stocks')
+                .insert({
+                  symbol,
+                  name: stock.name,
+                  shares,
+                  current_price: stock.current_price,
+                  price_change: stock.price_change,
+                  market_cap: stock.market_cap,
+                  volume: stock.volume,
+                  portfolio_id: portfolio.id
+                });
             }
+
+            // Update portfolio total
+            const newTotal = type === 'BUY'
+              ? (portfolio.total_holding || 0) + tradeAmount
+              : (portfolio.total_holding || 0) - tradeAmount;
+
+            await supabase
+              .from('portfolios')
+              .update({
+                total_holding: newTotal,
+                active_stocks: type === 'BUY' && !existingStock 
+                  ? (portfolio.active_stocks || 0) + 1 
+                  : type === 'SELL' && existingStock?.shares === shares
+                  ? (portfolio.active_stocks || 0) - 1
+                  : portfolio.active_stocks
+              })
+              .eq('id', portfolio.id);
             
-            return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at $${stock.current_price.toFixed(2)} per share. Total amount: $${(stock.current_price * shares).toFixed(2)}`;
+            return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at $${stock.current_price.toFixed(2)} per share. Total amount: $${tradeAmount.toFixed(2)}`;
           } catch (error: any) {
+            console.error('Trade error:', error);
             throw new Error(`Failed to execute trade: ${error.message}`);
           }
         }
