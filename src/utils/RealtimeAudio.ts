@@ -62,15 +62,12 @@ export class AudioRecorder {
 }
 
 export class RealtimeChat {
-  private pc: RTCPeerConnection | null = null;
   private dc: RTCDataChannel | null = null;
   private audioEl: HTMLAudioElement;
   private recorder: AudioRecorder | null = null;
-  public voiceId: string | null = null;
+  public voiceId: string = "EXAVITQu4vr4xnSDxMaL"; // Default to Sarah voice
   public elevenLabsKey: string | null = null;
   private portfolioChannel: any = null;
-  private retryCount = 0;
-  private maxRetries = 3;
   private lastUpdateTime: number = 0;
   private updateThreshold: number = 5000; // 5 seconds threshold between updates
 
@@ -79,106 +76,11 @@ export class RealtimeChat {
     this.audioEl.autoplay = true;
   }
 
-  private async initWithRetry(): Promise<any> {
-    try {
-      console.log(`Attempting to get token (attempt ${this.retryCount + 1})`);
-      
-      const response = await supabase.functions.invoke("realtime-chat", {
-        headers: {
-          Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-        }
-      });
-
-      if (response.error) {
-        throw new Error(`Supabase function error: ${response.error.message}`);
-      }
-
-      if (!response.data?.client_secret?.value) {
-        throw new Error("Invalid response format from edge function");
-      }
-
-      return response.data;
-    } catch (error) {
-      console.error(`Token fetch attempt ${this.retryCount + 1} failed:`, error);
-      
-      if (this.retryCount < this.maxRetries - 1) {
-        this.retryCount++;
-        const delay = Math.pow(2, this.retryCount - 1) * 1000;
-        console.log(`Waiting ${delay}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return this.initWithRetry();
-      }
-      
-      throw error;
-    }
-  }
-
   async init() {
     try {
-      const data = await this.initWithRetry();
-      const EPHEMERAL_KEY = data.client_secret.value;
-      console.log('Successfully obtained ephemeral token');
-
-      // Create peer connection
-      this.pc = new RTCPeerConnection();
-
-      // Set up remote audio
-      this.pc.ontrack = e => this.audioEl.srcObject = e.streams[0];
-
-      // Add local audio track
-      const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-      this.pc.addTrack(ms.getTracks()[0]);
-
-      // Set up data channel
-      this.dc = this.pc.createDataChannel("oai-events");
-      this.dc.addEventListener("message", (e) => {
-        const event = JSON.parse(e.data);
-        console.log("Received event:", event);
-        this.onMessage(event);
-      });
-
-      // Create and set local description
-      const offer = await this.pc.createOffer();
-      await this.pc.setLocalDescription(offer);
-
-      // Connect to OpenAI's Realtime API
-      const baseUrl = "https://api.openai.com/v1/realtime";
-      const model = "gpt-4o-realtime-preview-2024-12-17";
-      const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
-        method: "POST",
-        body: offer.sdp,
-        headers: {
-          Authorization: `Bearer ${EPHEMERAL_KEY}`,
-          "Content-Type": "application/sdp"
-        },
-      });
-
-      if (!sdpResponse.ok) {
-        throw new Error(`Failed to connect to OpenAI: ${sdpResponse.status}`);
-      }
-
-      const answer = {
-        type: "answer" as RTCSdpType,
-        sdp: await sdpResponse.text(),
-      };
-      
-      await this.pc.setRemoteDescription(answer);
-      console.log("WebRTC connection established successfully");
-
-      // Start recording
-      this.recorder = new AudioRecorder((audioData) => {
-        if (this.dc?.readyState === 'open') {
-          this.dc.send(JSON.stringify({
-            type: 'input_audio_buffer.append',
-            audio: this.encodeAudioData(audioData)
-          }));
-        }
-      });
-      await this.recorder.start();
-
-      // Set up portfolio updates subscription with throttling
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
+        // Subscribe to portfolio updates
         this.portfolioChannel = supabase
           .channel('portfolio-updates')
           .on(
@@ -203,52 +105,66 @@ export class RealtimeChat {
           .subscribe();
       }
 
+      // Initialize audio recording
+      this.recorder = new AudioRecorder((audioData) => {
+        // Handle audio data if needed
+        console.log('Audio data received:', audioData.length);
+      });
+      await this.recorder.start();
+
+      // Send initial greeting
+      const userName = session?.user?.email?.split('@')[0] || 'there';
+      const greetingMessage = `Hi ${userName}, I'm ready to help with your portfolio. I can assist you with viewing your portfolio, executing trades, and providing market analysis. What would you like to do?`;
+      await this.synthesizeSpeech(greetingMessage);
+
     } catch (error) {
       console.error("Error initializing chat:", error);
       throw error;
     }
   }
 
-  private encodeAudioData(float32Array: Float32Array): string {
-    const int16Array = new Int16Array(float32Array.length);
-    for (let i = 0; i < float32Array.length; i++) {
-      const s = Math.max(-1, Math.min(1, float32Array[i]));
-      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  private async synthesizeSpeech(text: string) {
+    if (!this.elevenLabsKey) {
+      console.error('ElevenLabs API key not set');
+      return;
     }
-    
-    const uint8Array = new Uint8Array(int16Array.buffer);
-    let binary = '';
-    const chunkSize = 0x8000;
-    
-    for (let i = 0; i < uint8Array.length; i += chunkSize) {
-      const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
-      binary += String.fromCharCode.apply(null, Array.from(chunk));
+
+    try {
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': this.elevenLabsKey,
+        },
+        body: JSON.stringify({
+          text,
+          model_id: "eleven_multilingual_v2",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate speech');
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      
+      if (this.audioEl) {
+        this.audioEl.src = url;
+        await this.audioEl.play();
+      }
+    } catch (error) {
+      console.error('Error synthesizing speech:', error);
     }
-    
-    return btoa(binary);
   }
 
   async sendMessage(text: string) {
-    if (!this.dc || this.dc.readyState !== 'open') {
-      throw new Error('Data channel not ready');
-    }
-
-    const event = {
-      type: 'conversation.item.create',
-      item: {
-        type: 'message',
-        role: 'user',
-        content: [
-          {
-            type: 'input_text',
-            text
-          }
-        ]
-      }
-    };
-
-    this.dc.send(JSON.stringify(event));
-    this.dc.send(JSON.stringify({type: 'response.create'}));
+    await this.synthesizeSpeech(text);
   }
 
   disconnect() {
@@ -256,7 +172,9 @@ export class RealtimeChat {
     if (this.portfolioChannel) {
       supabase.removeChannel(this.portfolioChannel);
     }
-    this.dc?.close();
-    this.pc?.close();
+    if (this.audioEl) {
+      this.audioEl.pause();
+      this.audioEl.src = '';
+    }
   }
 }
