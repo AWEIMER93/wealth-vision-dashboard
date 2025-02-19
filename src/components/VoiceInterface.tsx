@@ -4,24 +4,61 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { RealtimeChat } from '@/utils/RealtimeAudio';
 import { Mic, MicOff } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface VoiceInterfaceProps {
   onSpeakingChange: (speaking: boolean) => void;
 }
 
+const VOICE_ID = "EXAVITQu4vr4xnSDxMaL"; // Sarah's voice ID
+const MODEL_ID = "eleven_monolingual_v1";
+
 const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => {
   const { toast } = useToast();
   const [isConnected, setIsConnected] = useState(false);
   const chatRef = useRef<RealtimeChat | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const handleMessage = (event: any) => {
+  const playAudioResponse = async (text: string) => {
+    try {
+      onSpeakingChange(true);
+      
+      const { data, error } = await supabase.functions.invoke('text-to-speech', {
+        body: { 
+          text,
+          voice_id: VOICE_ID,
+          model_id: MODEL_ID
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.audio_base64) {
+        const audio = new Audio(`data:audio/mp3;base64,${data.audio_base64}`);
+        audioRef.current = audio;
+        
+        audio.onended = () => {
+          onSpeakingChange(false);
+        };
+        
+        await audio.play();
+      }
+    } catch (error) {
+      console.error('Error playing audio:', error);
+      onSpeakingChange(false);
+      toast({
+        title: "Error",
+        description: "Failed to play audio response",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleMessage = async (event: any) => {
     console.log('Received message:', event);
     
-    // Handle different event types
-    if (event.type === 'response.audio.delta') {
-      onSpeakingChange(true);
-    } else if (event.type === 'response.audio.done') {
-      onSpeakingChange(false);
+    if (event.type === 'response.text') {
+      await playAudioResponse(event.text);
     }
   };
 
@@ -46,6 +83,10 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
   };
 
   const endConversation = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
     chatRef.current?.disconnect();
     setIsConnected(false);
     onSpeakingChange(false);
@@ -58,6 +99,9 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
 
   useEffect(() => {
     return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
       chatRef.current?.disconnect();
     };
   }, []);
