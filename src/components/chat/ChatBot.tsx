@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -113,6 +114,13 @@ export const ChatBot = () => {
       if (data.awaitingPin) {
         setAwaitingPin(true);
         setPendingTrade(data.tradeCommand);
+        
+        // Show a toast to inform the user about PIN verification
+        toast({
+          title: "PIN Verification Required",
+          description: "Please enter your PIN to confirm the trade",
+          variant: "default",
+        });
       } else {
         setAwaitingPin(false);
         setPendingTrade(null);
@@ -186,7 +194,7 @@ export const ChatBot = () => {
             <ChatInput 
               onSend={handleSendMessage} 
               disabled={isLoading}
-              placeholder={awaitingPin ? "Enter your PIN to confirm" : "Ask about your portfolio..."}
+              placeholder={awaitingPin ? "Enter your PIN to confirm trade" : "Ask about your portfolio..."}
             />
           </div>
         </Card>
