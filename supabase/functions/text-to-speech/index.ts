@@ -37,7 +37,9 @@ serve(async (req) => {
     })
 
     if (!response.ok) {
-      throw new Error('Failed to generate speech')
+      const errorData = await response.json().catch(() => null);
+      console.error('ElevenLabs API error:', errorData);
+      throw new Error('Failed to generate speech');
     }
 
     // Convert audio buffer to base64
@@ -53,7 +55,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ error: error.message }),
       { 
-        status: 400,
+        status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       },
     )

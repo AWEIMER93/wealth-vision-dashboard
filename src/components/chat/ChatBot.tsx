@@ -94,16 +94,15 @@ export const ChatBot = () => {
       setIsLoading(true);
       setMessages(prev => [...prev, { role: 'user', content: message }]);
 
-      const payload = {
-        message,
-        ...(awaitingPin && pendingTrade ? {
-          pin: message,
-          tradeCommand: pendingTrade
-        } : {})
-      };
+      const body = awaitingPin && pendingTrade 
+        ? { message, pin: message, tradeCommand: pendingTrade }
+        : { message };
 
       const { data, error } = await supabase.functions.invoke('portfolio-chat', {
-        body: payload,
+        body,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
 
       if (error) {
@@ -111,8 +110,8 @@ export const ChatBot = () => {
         throw error;
       }
 
-      if (!data) {
-        throw new Error('No response data received');
+      if (!data?.reply) {
+        throw new Error('Invalid response format');
       }
 
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
