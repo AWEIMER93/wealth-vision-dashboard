@@ -50,27 +50,39 @@ export type Database = {
       stocks: {
         Row: {
           created_at: string | null
+          current_price: number | null
           id: string
+          market_cap: number | null
           name: string
           portfolio_id: string | null
+          price_change: number | null
           symbol: string
           units: number
+          volume: number | null
         }
         Insert: {
           created_at?: string | null
+          current_price?: number | null
           id?: string
+          market_cap?: number | null
           name: string
           portfolio_id?: string | null
+          price_change?: number | null
           symbol: string
           units: number
+          volume?: number | null
         }
         Update: {
           created_at?: string | null
+          current_price?: number | null
           id?: string
+          market_cap?: number | null
           name?: string
           portfolio_id?: string | null
+          price_change?: number | null
           symbol?: string
           units?: number
+          volume?: number | null
         }
         Relationships: [
           {

@@ -21,11 +21,32 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
+interface Stock {
+  id: string;
+  symbol: string;
+  name: string;
+  units: number;
+  current_price: number | null;
+  price_change: number | null;
+  market_cap: number | null;
+  volume: number | null;
+}
+
+interface Portfolio {
+  id: string;
+  user_id: string;
+  total_holding: number | null;
+  total_profit: number | null;
+  total_investment: number | null;
+  active_stocks: number | null;
+  stocks: Stock[];
+}
+
 const Dashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
 
-  const { data: portfolio, isLoading } = useQuery({
+  const { data: portfolio, isLoading } = useQuery<Portfolio>({
     queryKey: ['portfolio', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -44,9 +65,10 @@ const Dashboard = () => {
           )
         `)
         .eq('user_id', user?.id)
-        .single();
+        .maybeSingle();
       
       if (error) throw error;
+      if (!data) throw new Error('Portfolio not found');
       return data;
     },
     enabled: !!user?.id
@@ -227,8 +249,8 @@ const Dashboard = () => {
                       <td className={`py-4 ${stock.price_change && stock.price_change > 0 ? 'text-green-500' : 'text-red-500'}`}>
                         {stock.price_change && stock.price_change > 0 ? '+' : ''}{stock.price_change?.toFixed(2) ?? '0.00'}%
                       </td>
-                      <td className="py-4">${(stock.market_cap / 1e9).toFixed(2)}B</td>
-                      <td className="py-4">${(stock.volume / 1e9).toFixed(2)}B</td>
+                      <td className="py-4">${((stock.market_cap || 0) / 1e9).toFixed(2)}B</td>
+                      <td className="py-4">${((stock.volume || 0) / 1e9).toFixed(2)}B</td>
                       <td className="py-4">
                         <div className={`h-6 w-20 bg-gradient-to-r ${
                           stock.price_change && stock.price_change > 0 
