@@ -7,8 +7,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const createSupabaseClient = () => {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  return createClient(supabaseUrl, supabaseKey);
+};
+
 serve(async (req) => {
-  // Handle CORS
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -19,15 +24,29 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured');
     }
 
-    // Parse request
-    const { message } = await req.json();
+    const { message, userId } = await req.json();
     if (!message) {
       throw new Error('Message is required');
     }
 
     console.log('Processing message:', message);
 
-    // Call OpenAI API
+    // Get user's portfolio data
+    const supabase = createSupabaseClient();
+    const { data: portfolio, error: portfolioError } = await supabase
+      .from('portfolios')
+      .select(`
+        *,
+        stocks (*)
+      `)
+      .eq('user_id', userId)
+      .single();
+
+    if (portfolioError) {
+      throw portfolioError;
+    }
+
+    // Call OpenAI API with context
     const completion = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -39,15 +58,21 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `You are a helpful portfolio management assistant. You help users:
-            1. Understand their portfolio performance
-            2. Make informed investment decisions
-            3. Track market trends
-            4. Execute trades
-            5. Analyze stock metrics
+            content: `You are a professional portfolio management assistant. You help users manage their investments and execute trades.
             
-            Keep responses concise and focused on financial topics. When discussing stocks, 
-            always include relevant metrics like price, market cap, and volume when available.`,
+            Current portfolio context:
+            - Total Holdings: $${portfolio.total_holding}
+            - Total Profit: ${portfolio.total_profit}%
+            - Active Stocks: ${portfolio.active_stocks}
+            
+            Available actions:
+            1. Provide portfolio analysis and insights
+            2. Execute buy/sell trades
+            3. Show real-time market data
+            4. Calculate investment metrics
+            
+            Format numbers with appropriate commas and decimal places. Keep responses concise and professional.
+            When discussing trades, always confirm the action and include relevant metrics.`,
           },
           { role: 'user', content: message },
         ],
@@ -61,7 +86,15 @@ serve(async (req) => {
     const data = await completion.json();
     const reply = data.choices[0].message.content;
 
-    console.log('Sending reply:', reply);
+    // Check if the message indicates a trade action
+    if (reply.toLowerCase().includes('execute trade') || 
+        reply.toLowerCase().includes('buy shares') || 
+        reply.toLowerCase().includes('sell shares')) {
+      // Handle trade execution logic here
+      // This would involve parsing the reply for trade details
+      // and executing the trade through your trading system
+      console.log('Trade action detected, processing...');
+    }
 
     return new Response(
       JSON.stringify({ reply }),
@@ -71,10 +104,7 @@ serve(async (req) => {
     console.error('Error:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
-      { 
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

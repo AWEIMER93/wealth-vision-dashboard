@@ -29,7 +29,7 @@ interface Stock {
   id: string;
   symbol: string;
   name: string;
-  units: number;
+  shares: number;
   current_price: number | null;
   price_change: number | null;
   market_cap: number | null;
@@ -84,7 +84,7 @@ const Dashboard = () => {
             id,
             symbol,
             name,
-            units,
+            shares,
             current_price,
             price_change,
             market_cap,
@@ -115,7 +115,7 @@ const Dashboard = () => {
               id,
               symbol,
               name,
-              units,
+              shares,
               current_price,
               price_change,
               market_cap,
@@ -133,10 +133,10 @@ const Dashboard = () => {
 
       // Calculate portfolio totals and daily change
       const totalHolding = data.stocks?.reduce((sum, stock) => 
-        sum + (stock.current_price || 0) * stock.units, 0) || 0;
+        sum + (stock.current_price || 0) * stock.shares, 0) || 0;
 
       const totalDailyChange = data.stocks?.reduce((change, stock) => {
-        const stockValue = (stock.current_price || 0) * stock.units;
+        const stockValue = (stock.current_price || 0) * stock.shares;
         const stockDailyChange = (stockValue * (stock.price_change || 0)) / 100;
         return change + stockDailyChange;
       }, 0) || 0;
@@ -234,10 +234,10 @@ const Dashboard = () => {
           
           // Show toast for new transactions
           if (payload.eventType === 'INSERT') {
-            const { type, units } = payload.new;
+            const { type, shares } = payload.new;
             toast({
               title: "Trade Executed",
-              description: `Successfully ${type.toLowerCase()}ed ${units} shares`,
+              description: `Successfully ${type.toLowerCase()}ed ${shares} shares`,
               variant: "default",
             });
           }
@@ -318,11 +318,13 @@ const Dashboard = () => {
   // Calculate total profit percentage
   const profitPercentage = portfolio?.total_profit || 0;
 
+  const userFirstName = user?.email?.split('@')[0].replace(/^\w/, c => c.toUpperCase()) || '';
+
   return (
     <div className="min-h-screen bg-[#121212] text-white">
       {/* Sidebar */}
       <div className="fixed left-0 top-0 h-full w-64 bg-[#1A1A1A] p-6 border-r border-white/10">
-        <h1 className="text-2xl font-bold mb-8">Stovest</h1>
+        <h1 className="text-2xl font-bold mb-8">Wealth Management Company</h1>
         
         <div className="space-y-2 mb-8">
           <h2 className="text-sm text-gray-400 mb-4">Main Menu</h2>
@@ -362,7 +364,7 @@ const Dashboard = () => {
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-2xl font-medium">Welcome, {user.email?.split('@')[0]}</h1>
+            <h1 className="text-2xl font-medium">Welcome, {userFirstName}</h1>
             <p className="text-gray-400">Here's your stock portfolio overview</p>
           </div>
           <Button variant="outline" onClick={handleSignOut} className="border-white/10">
@@ -370,12 +372,12 @@ const Dashboard = () => {
           </Button>
         </div>
 
-        {/* Total Holding Card */}
+        {/* Total Holdings Card */}
         <Card className="bg-[#1A1A1A] border-none mb-6">
           <CardContent className="p-6">
             <div className="flex justify-between items-center">
               <div>
-                <p className="text-gray-400 mb-2">Total Holding</p>
+                <p className="text-gray-400 mb-2">Total Holdings</p>
                 <div className="flex items-center gap-4">
                   <h2 className="text-4xl font-bold">${portfolio?.total_holding?.toLocaleString() ?? '0.00'}</h2>
                   <span className={`flex items-center gap-1 ${profitPercentage > 0 ? 'text-green-500' : 'text-red-500'}`}>
@@ -401,7 +403,7 @@ const Dashboard = () => {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-4">
                     <StockIcon className="h-6 w-6" />
-                    <p className="text-sm text-gray-400">Units {stock.units}</p>
+                    <p className="text-sm text-gray-400">Shares {stock.shares}</p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-400 mb-1">{stock.symbol}</p>
