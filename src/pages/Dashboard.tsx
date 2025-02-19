@@ -75,6 +75,7 @@ const Dashboard = () => {
     queryFn: async () => {
       if (!user?.id) throw new Error('No user ID');
 
+      // Use a regular object for headers instead of Headers instance
       const { data, error } = await supabase
         .from('portfolios')
         .select(`
@@ -147,8 +148,8 @@ const Dashboard = () => {
       const activeStocks = data.stocks?.length || 0;
 
       // Update performance data
-      const currentTime = new Date().toLocaleTimeString();
       setPerformanceData(prev => {
+        const currentTime = new Date().toLocaleTimeString();
         const newData = [...prev, { time: currentTime, value: totalHolding }];
         // Keep last 20 data points for the chart
         return newData.slice(-20);
