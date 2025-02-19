@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
-import { MessageCircle, X } from 'lucide-react'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -16,7 +15,6 @@ export function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isOpen, setIsOpen] = useState(false)
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -47,58 +45,37 @@ export function Chat() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
-      {!isOpen && (
-        <Button
-          onClick={() => setIsOpen(true)}
-          className="rounded-full w-12 h-12 p-0"
-        >
-          <MessageCircle className="h-6 w-6" />
-        </Button>
-      )}
-
-      {isOpen && (
-        <Card className="w-[380px] shadow-lg">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Financial Assistant</CardTitle>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsOpen(false)}
-              className="h-8 w-8"
+    <Card className="w-full max-w-2xl mx-auto">
+      <CardHeader>
+        <CardTitle>Financial Assistant</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4 mb-4 h-[400px] overflow-y-auto">
+          {messages.map((message, i) => (
+            <div
+              key={i}
+              className={`p-4 rounded-lg ${
+                message.role === 'user'
+                  ? 'bg-primary text-primary-foreground ml-auto max-w-[80%]'
+                  : 'bg-muted max-w-[80%]'
+              }`}
             >
-              <X className="h-4 w-4" />
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4 mb-4 h-[400px] overflow-y-auto">
-              {messages.map((message, i) => (
-                <div
-                  key={i}
-                  className={`p-4 rounded-lg ${
-                    message.role === 'user'
-                      ? 'bg-primary text-primary-foreground ml-auto max-w-[80%]'
-                      : 'bg-muted max-w-[80%]'
-                  }`}
-                >
-                  {message.content}
-                </div>
-              ))}
+              {message.content}
             </div>
-            <form onSubmit={sendMessage} className="flex gap-2">
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask about your portfolio..."
-                disabled={isLoading}
-              />
-              <Button type="submit" disabled={isLoading}>
-                Send
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+          ))}
+        </div>
+        <form onSubmit={sendMessage} className="flex gap-2">
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask about your portfolio..."
+            disabled={isLoading}
+          />
+          <Button type="submit" disabled={isLoading}>
+            Send
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   )
 }
