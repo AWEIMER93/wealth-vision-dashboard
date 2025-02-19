@@ -17,16 +17,16 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
   const chatRef = useRef<RealtimeChat | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  const playAudio = async (text: string, voiceId: string, apiKey: string) => {
+  const playAudio = async (text: string) => {
     try {
       onSpeakingChange(true);
       
-      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${chatRef.current?.voiceId}`, {
         method: 'POST',
         headers: {
           'Accept': 'audio/mpeg',
           'Content-Type': 'application/json',
-          'xi-api-key': apiKey,
+          'xi-api-key': chatRef.current?.elevenLabsKey || '',
         },
         body: JSON.stringify({
           text,
@@ -59,7 +59,32 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
     console.log('Received message:', event);
     
     if (event.type === 'response.text' && chatRef.current?.voiceId && chatRef.current?.elevenLabsKey) {
-      await playAudio(event.text, chatRef.current.voiceId, chatRef.current.elevenLabsKey);
+      await playAudio(event.text);
+    }
+
+    // Handle function calls for trades
+    if (event.type === 'response.function_call_arguments.delta') {
+      const functionCall = JSON.parse(event.delta);
+      if (functionCall?.action && functionCall?.symbol && functionCall?.shares) {
+        // Get current stock price for confirmation
+        const { data: stockData } = await supabase
+          .from('stocks')
+          .select('current_price')
+          .eq('symbol', functionCall.symbol)
+          .single();
+
+        if (stockData) {
+          const totalAmount = stockData.current_price * functionCall.shares;
+          const confirmMessage = `You are about to ${functionCall.action.toLowerCase()} ${functionCall.shares} shares of ${functionCall.symbol} at $${stockData.current_price.toLocaleString()} per share. Total amount: $${totalAmount.toLocaleString()}. Please confirm with your PIN.`;
+          await playAudio(confirmMessage);
+        }
+      }
+    }
+
+    // Handle trade execution confirmation
+    if (event.type === 'response.text' && event.text.includes('Trade executed successfully')) {
+      const updatedMessage = `${event.text} Please note that it may take 1-2 minutes for your portfolio balances and stock holdings to be updated.`;
+      await playAudio(updatedMessage);
     }
   };
 
@@ -70,10 +95,10 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
       setIsConnected(true);
       
       const userName = user?.email?.split('@')[0] || 'there';
-      const greetingMessage = `Hi ${userName}, I'm ready to help with your portfolio.`;
+      const greetingMessage = `Hi ${userName}, I'm ready to help with your portfolio. I can assist you with viewing your portfolio, executing trades, and providing market analysis. What would you like to do?`;
       
       if (chatRef.current.voiceId && chatRef.current.elevenLabsKey) {
-        await playAudio(greetingMessage, chatRef.current.voiceId, chatRef.current.elevenLabsKey);
+        await playAudio(greetingMessage);
       }
       
       toast({
