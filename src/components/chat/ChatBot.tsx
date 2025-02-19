@@ -1,8 +1,8 @@
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { MessageCircle, X } from "lucide-react";
+import { MessageCircle, X, Home } from "lucide-react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
 import { useChat } from "@/hooks/use-chat";
@@ -17,23 +17,36 @@ interface QuickAction {
 const quickActions: QuickAction[] = [
   { label: "Portfolio Summary", action: "Show me a summary of my portfolio" },
   { label: "Market Overview", action: "Give me today's market overview" },
-  { label: "Buy Stock", action: "I want to buy stocks" },
-  { label: "Sell Stock", action: "I want to sell stocks" },
+  { label: "Execute Trade", action: "I want to execute a trade" },
   { label: "Performance Analysis", action: "Analyze my portfolio performance" },
 ];
 
 export const ChatBot = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [showMenu, setShowMenu] = useState(true);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const { messages, isLoading, sendMessage } = useChat();
   const { user } = useAuth();
   
-  // Don't render the chat bot if user is not authenticated
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+  
   if (!user) {
     return null;
   }
   
   const handleQuickAction = (action: string) => {
+    setShowMenu(false);
     sendMessage(action);
+  };
+
+  const handleMenuReturn = () => {
+    setShowMenu(true);
   };
   
   return (
@@ -41,7 +54,19 @@ export const ChatBot = () => {
       {isOpen ? (
         <Card className="w-[400px] h-[600px] flex flex-col animate-fade-in bg-[#1A1A1A] border-white/10">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 border-b border-white/10">
-            <span className="font-semibold text-white">Portfolio Assistant</span>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-white">Portfolio Assistant</span>
+              {!showMenu && messages.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleMenuReturn}
+                  className="text-gray-400 hover:text-white h-8 w-8"
+                >
+                  <Home className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
             <Button 
               variant="ghost" 
               size="icon"
@@ -53,7 +78,7 @@ export const ChatBot = () => {
           </CardHeader>
 
           <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
-            {messages.length === 0 ? (
+            {showMenu && messages.length === 0 ? (
               <>
                 <div className="text-center text-gray-400 pt-8 pb-4">
                   How can I assist you with your portfolio today?
@@ -72,19 +97,25 @@ export const ChatBot = () => {
                 </div>
               </>
             ) : (
-              messages.map((message, index) => (
-                <ChatMessage
-                  key={index}
-                  role={message.role}
-                  content={message.content}
-                />
-              ))
+              <>
+                {messages.map((message, index) => (
+                  <ChatMessage
+                    key={index}
+                    role={message.role}
+                    content={message.content}
+                  />
+                ))}
+                <div ref={messagesEndRef} />
+              </>
             )}
           </CardContent>
 
           <div className="p-4 border-t border-white/10">
             <ChatInput 
-              onSend={sendMessage} 
+              onSend={(content) => {
+                setShowMenu(false);
+                sendMessage(content);
+              }} 
               disabled={isLoading}
             />
           </div>

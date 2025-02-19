@@ -14,6 +14,35 @@ const createSupabaseClient = () => {
   return createClient(supabaseUrl, supabaseKey);
 };
 
+const processTradeRequest = (message: string) => {
+  const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i);
+  const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i);
+  
+  if (buyMatch || sellMatch) {
+    const match = buyMatch || sellMatch;
+    const action = buyMatch ? 'buy' : 'sell';
+    const shares = parseInt(match![1]);
+    let symbol = match![2].toUpperCase();
+    
+    // Handle common stock name variations
+    const stockMappings: { [key: string]: string } = {
+      'APPLE': 'AAPL',
+      'TESLA': 'TSLA',
+      'MICROSOFT': 'MSFT',
+      'GOOGLE': 'GOOG',
+      'NVIDIA': 'NVDA',
+    };
+    
+    if (stockMappings[symbol]) {
+      symbol = stockMappings[symbol];
+    }
+    
+    return { type: 'trade', action, shares, symbol };
+  }
+  
+  return null;
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -34,6 +63,26 @@ serve(async (req) => {
     }
 
     console.log('Processing message:', message);
+
+    // Process trade request
+    const tradeRequest = processTradeRequest(message);
+    let additionalContext = '';
+    
+    if (tradeRequest) {
+      const supabase = createSupabaseClient();
+      const { data: stock } = await supabase
+        .from('stocks')
+        .select('current_price')
+        .eq('symbol', tradeRequest.symbol)
+        .single();
+      
+      if (stock) {
+        const totalAmount = stock.current_price * tradeRequest.shares;
+        additionalContext = `\nCurrent ${tradeRequest.symbol} price: $${stock.current_price}
+Total ${tradeRequest.action} amount: $${totalAmount.toFixed(2)}
+To confirm this trade, please enter PIN: 1234`;
+      }
+    }
 
     // Get user's portfolio data
     const supabase = createSupabaseClient();
@@ -63,21 +112,24 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `You are a professional portfolio management assistant. You help users manage their investments and execute trades.
+            content: `You are a friendly and helpful portfolio management assistant named Alex. You help users manage their investments and execute trades in a conversational manner.
             
             Current portfolio context:
             - Total Holdings: $${portfolio.total_holding?.toLocaleString() ?? '0'}
             - Total Profit: ${portfolio.total_profit?.toFixed(2) ?? '0'}%
             - Active Stocks: ${portfolio.active_stocks ?? '0'}
             
-            Available actions:
-            1. Provide portfolio analysis and insights
-            2. Execute buy/sell trades
-            3. Show real-time market data
-            4. Calculate investment metrics
+            Style guide:
+            - Be conversational and friendly, use "I" and refer to the user directly
+            - Keep responses concise but natural
+            - Format numbers with commas and 2 decimal places
+            - For trades, clearly confirm the action and include all relevant details
+            - Use everyday language, avoid jargon unless necessary
             
-            Format numbers with appropriate commas and decimal places. Keep responses concise and professional.
-            When discussing trades, always confirm the action and include relevant metrics.`,
+            Example responses:
+            - "I see you're interested in buying Apple stock. The current price is $150.25 per share..."
+            - "Based on your portfolio performance, I notice a strong upward trend in the tech sector..."
+            - "Let me help you with that trade. Just to confirm, you want to sell 10 shares of Tesla..."`,
           },
           { role: 'user', content: message },
         ],
@@ -89,16 +141,12 @@ serve(async (req) => {
     }
 
     const data = await completion.json();
-    const reply = data.choices[0].message.content;
+    let reply = data.choices[0].message.content;
 
-    // Check if the message indicates a trade action
-    if (reply.toLowerCase().includes('execute trade') || 
-        reply.toLowerCase().includes('buy shares') || 
-        reply.toLowerCase().includes('sell shares')) {
-      console.log('Trade action detected, processing...');
+    // Add trade context if available
+    if (additionalContext) {
+      reply += additionalContext;
     }
-
-    console.log('Sending reply:', reply);
 
     return new Response(
       JSON.stringify({ reply }),
