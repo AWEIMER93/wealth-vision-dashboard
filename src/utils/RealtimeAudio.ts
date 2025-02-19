@@ -66,6 +66,8 @@ export class RealtimeChat {
   private dc: RTCDataChannel | null = null;
   private audioEl: HTMLAudioElement;
   private recorder: AudioRecorder | null = null;
+  public voiceId: string | null = null;
+  public elevenLabsKey: string | null = null;
 
   constructor(private onMessage: (message: any) => void) {
     this.audioEl = document.createElement("audio");
@@ -75,12 +77,20 @@ export class RealtimeChat {
   async init() {
     try {
       // Get ephemeral token from our Supabase Edge Function
-      const response = await supabase.functions.invoke("realtime-chat");
+      const response = await supabase.functions.invoke("realtime-chat", {
+        headers: {
+          Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        }
+      });
       const data = await response.data;
       
       if (!data?.client_secret?.value) {
         throw new Error("Failed to get ephemeral token");
       }
+
+      // Store voice settings
+      this.voiceId = data.voice_id;
+      this.elevenLabsKey = data.eleven_labs_key;
 
       const EPHEMERAL_KEY = data.client_secret.value;
 

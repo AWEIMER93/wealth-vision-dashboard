@@ -15,17 +15,51 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
   const { user } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const chatRef = useRef<RealtimeChat | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const playAudio = async (text: string, voiceId: string, apiKey: string) => {
+    try {
+      onSpeakingChange(true);
+      
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          text,
+          model_id: "eleven_multilingual_v2",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate speech');
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      
+      if (audioRef.current) {
+        audioRef.current.src = url;
+        audioRef.current.play();
+      }
+    } catch (error) {
+      console.error('Error playing audio:', error);
+      onSpeakingChange(false);
+    }
+  };
 
   const handleMessage = async (event: any) => {
     console.log('Received message:', event);
     
-    if (event.type === 'response.text') {
-      onSpeakingChange(true);
-      // Cancel any ongoing speech before starting new one
-      speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(event.text);
-      utterance.onend = () => onSpeakingChange(false);
-      speechSynthesis.speak(utterance);
+    if (event.type === 'response.text' && chatRef.current?.voiceId && chatRef.current?.elevenLabsKey) {
+      await playAudio(event.text, chatRef.current.voiceId, chatRef.current.elevenLabsKey);
     }
   };
 
@@ -38,12 +72,9 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
       const userName = user?.email?.split('@')[0] || 'there';
       const greetingMessage = `Hi ${userName}, I'm ready to help with your portfolio.`;
       
-      // Cancel any ongoing speech before starting
-      speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(greetingMessage);
-      utterance.onend = () => onSpeakingChange(false);
-      onSpeakingChange(true);
-      speechSynthesis.speak(utterance);
+      if (chatRef.current.voiceId && chatRef.current.elevenLabsKey) {
+        await playAudio(greetingMessage, chatRef.current.voiceId, chatRef.current.elevenLabsKey);
+      }
       
       toast({
         title: "Voice Assistant Ready",
@@ -60,7 +91,10 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
   };
 
   const endConversation = () => {
-    speechSynthesis.cancel();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
     chatRef.current?.disconnect();
     setIsConnected(false);
     onSpeakingChange(false);
@@ -72,25 +106,33 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
   };
 
   useEffect(() => {
+    audioRef.current = new Audio();
+    audioRef.current.onended = () => onSpeakingChange(false);
+    
     return () => {
-      speechSynthesis.cancel();
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
       chatRef.current?.disconnect();
     };
   }, []);
 
   return (
-    <Button
-      onClick={isConnected ? endConversation : startConversation}
-      size="icon"
-      variant={isConnected ? "destructive" : "default"}
-      className="fixed bottom-4 left-4 h-12 w-12 rounded-full shadow-lg hover:shadow-xl transition-all"
-    >
-      {isConnected ? (
-        <MicOff className="h-6 w-6" />
-      ) : (
-        <Mic className="h-6 w-6" />
-      )}
-    </Button>
+    <>
+      <Button
+        onClick={isConnected ? endConversation : startConversation}
+        size="icon"
+        variant={isConnected ? "destructive" : "default"}
+        className="fixed bottom-4 left-4 h-12 w-12 rounded-full shadow-lg hover:shadow-xl transition-all"
+      >
+        {isConnected ? (
+          <MicOff className="h-6 w-6" />
+        ) : (
+          <Mic className="h-6 w-6" />
+        )}
+      </Button>
+    </>
   );
 };
 
