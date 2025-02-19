@@ -97,6 +97,57 @@ export type Database = {
           },
         ]
       }
+      transactions: {
+        Row: {
+          executed_at: string | null
+          id: string
+          portfolio_id: string | null
+          price_per_unit: number
+          status: string
+          stock_id: string | null
+          total_amount: number
+          type: string
+          units: number
+        }
+        Insert: {
+          executed_at?: string | null
+          id?: string
+          portfolio_id?: string | null
+          price_per_unit: number
+          status?: string
+          stock_id?: string | null
+          total_amount: number
+          type: string
+          units: number
+        }
+        Update: {
+          executed_at?: string | null
+          id?: string
+          portfolio_id?: string | null
+          price_per_unit?: number
+          status?: string
+          stock_id?: string | null
+          total_amount?: number
+          type?: string
+          units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "portfolios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_stock_id_fkey"
+            columns: ["stock_id"]
+            isOneToOne: false
+            referencedRelation: "stocks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           created_at: string | null

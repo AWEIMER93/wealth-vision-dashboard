@@ -1,12 +1,14 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { MessageCircle, X, LineChart, Wallet, TrendingUp, AlertCircle } from "lucide-react";
+import { MessageCircle, X, LineChart, Wallet, TrendingUp, AlertCircle, DollarSign } from "lucide-react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/providers/AuthProvider";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface Message {
   role: 'assistant' | 'user';
@@ -18,6 +20,7 @@ const QUICK_ACTIONS = [
   { icon: TrendingUp, label: "Best Performers", query: "What are my best performing stocks?" },
   { icon: LineChart, label: "Market Analysis", query: "How is the market affecting my portfolio?" },
   { icon: AlertCircle, label: "Risk Assessment", query: "What's my portfolio risk level?" },
+  { icon: DollarSign, label: "Trade Example", query: "How do I execute trades?" },
 ];
 
 export const ChatBot = () => {
@@ -25,6 +28,61 @@ export const ChatBot = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Subscribe to stock changes
+    const stockChannel = supabase
+      .channel('stock-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'stocks'
+        },
+        (payload) => {
+          console.log('Stock change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
+        }
+      )
+      .subscribe();
+
+    // Subscribe to transaction changes
+    const transactionChannel = supabase
+      .channel('transaction-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'transactions'
+        },
+        (payload) => {
+          console.log('Transaction:', payload);
+          queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
+          
+          // Show toast for new transactions
+          if (payload.eventType === 'INSERT') {
+            const { type, symbol, units } = payload.new;
+            toast({
+              title: `Trade Executed`,
+              description: `Successfully ${type.toLowerCase()}ed ${units} shares`,
+              variant: "default",
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(stockChannel);
+      supabase.removeChannel(transactionChannel);
+    };
+  }, [user?.id, queryClient, toast]);
 
   const handleSendMessage = async (message: string) => {
     try {
@@ -86,7 +144,7 @@ export const ChatBot = () => {
           <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.length === 0 ? (
               <div className="text-center text-gray-400 pt-8">
-                Hey! Ask me anything about your portfolio or try the quick actions above.
+                Hey! You can ask me anything about your portfolio or try executing trades (e.g., "buy 10 AAPL" or "sell 5 TSLA").
               </div>
             ) : (
               messages.map((message, index) => (
