@@ -10,7 +10,7 @@ interface VoiceInterfaceProps {
   onSpeakingChange: (speaking: boolean) => void;
 }
 
-const VOICE_ID = "EXAVITQu4vr4xnSDxMaL"; // Sarah's voice ID
+const VOICE_ID = "M7ya1YbaeFaPXljg9BpK"; // Updated voice ID
 const MODEL_ID = "eleven_monolingual_v1";
 
 const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => {
