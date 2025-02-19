@@ -9,6 +9,16 @@ interface Message {
   content: string;
 }
 
+// Helper function to format currency
+const formatCurrency = (amount: number): string => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount);
+};
+
 export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -101,20 +111,24 @@ export const useChat = () => {
                 : existingStock.shares - shares;
 
               if (newShares > 0) {
-                await supabase
+                const { error: updateError } = await supabase
                   .from('stocks')
                   .update({ shares: newShares })
                   .eq('id', existingStock.id);
+                
+                if (updateError) throw updateError;
               } else {
                 // Remove stock if no shares left
-                await supabase
+                const { error: deleteError } = await supabase
                   .from('stocks')
                   .delete()
                   .eq('id', existingStock.id);
+                
+                if (deleteError) throw deleteError;
               }
             } else if (type === 'BUY') {
               // Create new stock holding
-              await supabase
+              const { error: insertError } = await supabase
                 .from('stocks')
                 .insert({
                   symbol,
@@ -126,6 +140,8 @@ export const useChat = () => {
                   volume: stock.volume,
                   portfolio_id: portfolio.id
                 });
+              
+              if (insertError) throw insertError;
             }
 
             // Update portfolio total
@@ -133,7 +149,7 @@ export const useChat = () => {
               ? (portfolio.total_holding || 0) + tradeAmount
               : (portfolio.total_holding || 0) - tradeAmount;
 
-            await supabase
+            const { error: portfolioUpdateError } = await supabase
               .from('portfolios')
               .update({
                 total_holding: newTotal,
@@ -145,7 +161,13 @@ export const useChat = () => {
               })
               .eq('id', portfolio.id);
             
-            return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at $${stock.current_price.toFixed(2)} per share. Total amount: $${tradeAmount.toFixed(2)}`;
+            if (portfolioUpdateError) throw portfolioUpdateError;
+
+            // Format the response with proper number formatting
+            const formattedPrice = formatCurrency(stock.current_price);
+            const formattedTotal = formatCurrency(tradeAmount);
+            
+            return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at ${formattedPrice} per share. Total amount: ${formattedTotal}`;
           } catch (error: any) {
             console.error('Trade error:', error);
             throw new Error(`Failed to execute trade: ${error.message}`);
@@ -188,10 +210,19 @@ export const useChat = () => {
 
       if (error) throw error;
 
+      // Format any numbers in the response
+      let formattedReply = data.reply || "I'm sorry, I couldn't process that request.";
+      
+      // Format currency values in the response
+      formattedReply = formattedReply.replace(
+        /\$(\d+(?:\.\d{2})?)/g,
+        (match, number) => formatCurrency(parseFloat(number))
+      );
+
       // Add assistant's response to chat
       setMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: data.reply || "I'm sorry, I couldn't process that request."
+        content: formattedReply
       }]);
     } catch (error: any) {
       console.error('Chat error:', error);
