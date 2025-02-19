@@ -1,4 +1,3 @@
-
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -300,7 +299,7 @@ const Dashboard = () => {
                 </div>
               </div>
               <Button variant="outline" className="border-white/10">
-                6M <ChevronDown className="h-4 w-4 ml-2" />
+                1D <ChevronDown className="h-4 w-4 ml-2" />
               </Button>
             </div>
           </CardContent>
@@ -333,8 +332,8 @@ const Dashboard = () => {
                 {['1D', '1W', '1M', '6M', '1Y'].map((period) => (
                   <Button
                     key={period}
-                    variant={period === '6M' ? 'default' : 'ghost'}
-                    className={period === '6M' ? 'bg-blue-500' : 'text-gray-400'}
+                    variant={period === '1D' ? 'default' : 'ghost'}
+                    className={period === '1D' ? 'bg-blue-500' : 'text-gray-400'}
                   >
                     {period}
                   </Button>
@@ -420,7 +419,9 @@ const StockCard = ({ symbol, name, units, price, change, Icon }: StockCardProps)
       <div>
         <p className="text-sm text-gray-400 mb-1">{symbol}</p>
         <p className="text-lg font-medium">${price.toLocaleString()}</p>
-        <p className="text-sm text-green-500">+{change}%</p>
+        <p className={`text-sm ${change > 0 ? 'text-green-500' : 'text-red-500'}`}>
+          {change > 0 ? '+' : ''}{change}%
+        </p>
       </div>
     </CardContent>
   </Card>
