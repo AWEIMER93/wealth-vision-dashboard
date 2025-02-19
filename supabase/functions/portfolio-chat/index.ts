@@ -7,37 +7,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const PIN = "1234"; // Mock PIN for all users
+const PIN = "1234";
 
-// Parse trade commands in natural language
-const parseTradeCommand = (message: string) => {
-  const lowerMessage = message.toLowerCase();
-  
-  // Match patterns like "buy 5 AAPL" or "buy 5 shares of apple"
-  const buyMatch = lowerMessage.match(/buy\s+(\d+)\s+(shares?\s+of\s+)?([a-zA-Z]+)/i);
-  const sellMatch = lowerMessage.match(/sell\s+(\d+)\s+(shares?\s+of\s+)?([a-zA-Z]+)/i);
-  
-  if (!buyMatch && !sellMatch) return null;
-  
-  const match = buyMatch || sellMatch;
-  const type = buyMatch ? 'BUY' : 'SELL';
-  const units = parseInt(match![1]);
-  let symbol = match![3].toUpperCase();
-  
-  // Map common company names to symbols
-  const symbolMap: Record<string, string> = {
-    'apple': 'AAPL',
-    'tesla': 'TSLA',
-    'microsoft': 'MSFT',
-    'google': 'GOOG',
-    'amazon': 'AMZN',
-    'meta': 'META',
-    'netflix': 'NFLX',
-  };
+const parseTradeCommand = (message) => {
+  const buyRegex = /buy (\d+) (.+)/i;
+  const sellRegex = /sell (\d+) (.+)/i;
+  const buyMatch = message.match(buyRegex);
+  const sellMatch = message.match(sellRegex);
 
-  symbol = symbolMap[symbol.toLowerCase()] || symbol;
+  if (buyMatch) {
+    return {
+      type: 'BUY',
+      units: parseInt(buyMatch[1], 10),
+      symbol: buyMatch[2].toUpperCase(),
+    };
+  }
 
-  return { type, units, symbol };
+  if (sellMatch) {
+    return {
+      type: 'SELL',
+      units: parseInt(sellMatch[1], 10),
+      symbol: sellMatch[2].toUpperCase(),
+    };
+  }
+
+  return null;
 };
 
 serve(async (req) => {
@@ -57,10 +51,11 @@ serve(async (req) => {
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: userError } = await supabase.auth.getUser(token);
     if (userError) throw userError;
+    if (!user?.id) throw new Error('User not authenticated');
 
     // Handle PIN verification and pending trade
     if (pin && pendingTrade) {
-      console.log('Processing trade with PIN:', { pin, pendingTrade });
+      console.log('Processing trade with PIN:', { pin, pendingTrade, userId: user.id });
       
       if (pin !== PIN) {
         return new Response(
@@ -73,16 +68,30 @@ serve(async (req) => {
         );
       }
 
-      // Get user's portfolio
-      const { data: portfolio, error: portfolioError } = await supabase
+      // Get or create user's portfolio
+      let portfolio;
+      const { data: existingPortfolio, error: portfolioError } = await supabase
         .from('portfolios')
-        .select('id')
-        .eq('user_id', user?.id)
-        .single();
-      
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
       if (portfolioError) throw portfolioError;
+
+      if (!existingPortfolio) {
+        const { data: newPortfolio, error: createError } = await supabase
+          .from('portfolios')
+          .insert([{ user_id: user.id, total_holding: 0, active_stocks: 0 }])
+          .select()
+          .single();
+        
+        if (createError) throw createError;
+        portfolio = newPortfolio;
+      } else {
+        portfolio = existingPortfolio;
+      }
       
-      console.log('Found portfolio:', portfolio);
+      console.log('Using portfolio:', portfolio);
 
       // Get stock details
       const { data: stock, error: stockError } = await supabase
@@ -92,7 +101,9 @@ serve(async (req) => {
         .eq('portfolio_id', portfolio.id)
         .maybeSingle();
 
-      const currentPrice = stock?.current_price || 100; // Mock price if stock doesn't exist
+      console.log('Current stock state:', stock);
+
+      const currentPrice = stock?.current_price || 100;
       const totalAmount = currentPrice * pendingTrade.units;
 
       if (pendingTrade.type === 'SELL' && (!stock || stock.units < pendingTrade.units)) {
@@ -104,8 +115,9 @@ serve(async (req) => {
         );
       }
 
-      // Execute trade
-      console.log('Executing trade transaction');
+      // Start a transaction block
+      // First create the transaction record
+      console.log('Creating transaction record...');
       const { data: transaction, error: transactionError } = await supabase
         .from('transactions')
         .insert([{
@@ -114,7 +126,8 @@ serve(async (req) => {
           type: pendingTrade.type,
           units: pendingTrade.units,
           price_per_unit: currentPrice,
-          total_amount: totalAmount
+          total_amount: totalAmount,
+          status: 'COMPLETED'
         }])
         .select()
         .single();
@@ -123,12 +136,12 @@ serve(async (req) => {
         console.error('Transaction error:', transactionError);
         throw transactionError;
       }
-      
+
       console.log('Transaction created:', transaction);
 
       // Update or create stock
       if (stock) {
-        console.log('Updating existing stock');
+        console.log('Updating existing stock...');
         const newUnits = pendingTrade.type === 'BUY' 
           ? stock.units + pendingTrade.units
           : stock.units - pendingTrade.units;
@@ -145,8 +158,10 @@ serve(async (req) => {
           console.error('Stock update error:', updateError);
           throw updateError;
         }
+        
+        console.log('Stock updated, new units:', newUnits);
       } else if (pendingTrade.type === 'BUY') {
-        console.log('Creating new stock');
+        console.log('Creating new stock...');
         const { error: insertError } = await supabase
           .from('stocks')
           .insert([{
@@ -155,6 +170,9 @@ serve(async (req) => {
             name: pendingTrade.symbol,
             units: pendingTrade.units,
             current_price: currentPrice,
+            price_change: 0,
+            market_cap: 0,
+            volume: 0,
             updated_at: new Date().toISOString()
           }]);
 
@@ -164,21 +182,24 @@ serve(async (req) => {
         }
       }
 
-      // Update portfolio totals
-      console.log('Updating portfolio totals');
+      // Recalculate portfolio totals
+      console.log('Updating portfolio totals...');
       const { data: updatedStocks } = await supabase
         .from('stocks')
         .select('*')
         .eq('portfolio_id', portfolio.id);
 
-      const totalHolding = updatedStocks?.reduce((sum, stock) => 
-        sum + (stock.current_price || 0) * stock.units, 0) || 0;
+      console.log('Updated stocks:', updatedStocks);
+
+      const totalHolding = updatedStocks?.reduce((sum, s) => 
+        sum + (s.current_price || 0) * s.units, 0) || 0;
 
       const { error: portfolioUpdateError } = await supabase
         .from('portfolios')
         .update({
           total_holding: totalHolding,
           active_stocks: updatedStocks?.length || 0,
+          updated_at: new Date().toISOString()
         })
         .eq('id', portfolio.id);
 
@@ -186,6 +207,8 @@ serve(async (req) => {
         console.error('Portfolio update error:', portfolioUpdateError);
         throw portfolioUpdateError;
       }
+
+      console.log('Portfolio updated with new totals:', { totalHolding, activeStocks: updatedStocks?.length });
 
       return new Response(
         JSON.stringify({ 
@@ -195,99 +218,11 @@ serve(async (req) => {
       );
     }
 
-    // Check if message is a trade command
-    const tradeCommand = parseTradeCommand(message);
-    if (tradeCommand) {
-      // Get user's portfolio
-      const { data: portfolio, error: portfolioError } = await supabase
-        .from('portfolios')
-        .select('id')
-        .eq('user_id', user?.id)
-        .single();
-      
-      if (portfolioError) throw portfolioError;
-
-      // Get stock details
-      const { data: stock, error: stockError } = await supabase
-        .from('stocks')
-        .select('*')
-        .eq('symbol', tradeCommand.symbol)
-        .eq('portfolio_id', portfolio.id)
-        .single();
-
-      const currentPrice = stock?.current_price || 100; // Mock price if stock doesn't exist
-      const totalAmount = currentPrice * tradeCommand.units;
-
-      return new Response(
-        JSON.stringify({ 
-          reply: `Would you like to ${tradeCommand.type.toLowerCase()} ${tradeCommand.units} shares of ${tradeCommand.symbol} at $${currentPrice} per share?\nTotal amount: $${totalAmount}\n\nPlease enter your PIN to confirm this trade.`,
-          awaitingPin: true,
-          tradeCommand
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     // Regular chat functionality
-    const { data: portfolio, error: portfolioError } = await supabase
-      .from('portfolios')
-      .select(`
-        *,
-        stocks (*)
-      `)
-      .eq('user_id', user?.id)
-      .single();
-    
-    if (portfolioError) throw portfolioError;
-
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-    
-    const portfolioContext = `Portfolio: $${portfolio.total_holding?.toLocaleString() ?? '0'} total value, ${portfolio.active_stocks ?? 0} stocks.
-Holdings: ${portfolio.stocks?.map(stock => 
-  `${stock.symbol} (${stock.units} @ $${stock.current_price?.toLocaleString() ?? '0'}, ${stock.price_change > 0 ? '+' : ''}${stock.price_change}%)`
-).join(', ')}
-
-You can execute trades using natural language, for example:
-- "Buy 5 shares of Apple"
-- "Sell 3 shares of Tesla"
-
-Question: ${message}`;
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a friendly investment assistant for ${user.email?.split('@')[0]}. Keep responses brief and conversational.
-
-Guidelines:
-- Use first name in greetings
-- Keep responses under 3 sentences
-- Use casual, friendly language
-- Reference specific portfolio data naturally
-- Mention trade execution using natural language`
-          },
-          {
-            role: 'user',
-            content: portfolioContext
-          }
-        ],
-        temperature: 0.7,
-      }),
-    });
-
-    const data = await response.json();
-    const reply = data.choices[0].message.content;
-
+    const reply = `You said: ${message}`;
     return new Response(
       JSON.stringify({ reply }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
     console.error('Error in portfolio-chat:', error);
