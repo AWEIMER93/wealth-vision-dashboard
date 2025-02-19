@@ -7,9 +7,10 @@ import { Send } from "lucide-react";
 interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
+  placeholder?: string;
 }
 
-export const ChatInput = ({ onSend, disabled }: ChatInputProps) => {
+export const ChatInput = ({ onSend, disabled, placeholder = "Ask about your portfolio..." }: ChatInputProps) => {
   const [message, setMessage] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -25,7 +26,7 @@ export const ChatInput = ({ onSend, disabled }: ChatInputProps) => {
       <Input
         value={message}
         onChange={(e) => setMessage(e.target.value)}
-        placeholder="Ask about your portfolio..."
+        placeholder={placeholder}
         disabled={disabled}
         className="bg-white/5 border-white/10 text-white placeholder:text-gray-400"
       />

@@ -8,23 +8,37 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Parse trade commands like "buy 10 AAPL" or "sell 5 TSLA"
+const PIN = "1234"; // Mock PIN for all users
+
+// Parse trade commands in natural language
 const parseTradeCommand = (message: string) => {
-  const parts = message.toLowerCase().split(' ');
-  if (parts.length !== 3) return null;
-
-  const [action, unitsStr, symbol] = parts;
-  const units = parseInt(unitsStr);
-
-  if ((action !== 'buy' && action !== 'sell') || isNaN(units)) {
-    return null;
-  }
-
-  return {
-    type: action.toUpperCase(),
-    units,
-    symbol: symbol.toUpperCase()
+  const lowerMessage = message.toLowerCase();
+  
+  // Match patterns like "buy 5 AAPL" or "buy 5 shares of apple"
+  const buyMatch = lowerMessage.match(/buy\s+(\d+)\s+(shares?\s+of\s+)?([a-zA-Z]+)/i);
+  const sellMatch = lowerMessage.match(/sell\s+(\d+)\s+(shares?\s+of\s+)?([a-zA-Z]+)/i);
+  
+  if (!buyMatch && !sellMatch) return null;
+  
+  const match = buyMatch || sellMatch;
+  const type = buyMatch ? 'BUY' : 'SELL';
+  const units = parseInt(match![1]);
+  let symbol = match![3].toUpperCase();
+  
+  // Map common company names to symbols
+  const symbolMap: Record<string, string> = {
+    'apple': 'AAPL',
+    'tesla': 'TSLA',
+    'microsoft': 'MSFT',
+    'google': 'GOOG',
+    'amazon': 'AMZN',
+    'meta': 'META',
+    'netflix': 'NFLX',
   };
+
+  symbol = symbolMap[symbol.toLowerCase()] || symbol;
+
+  return { type, units, symbol };
 };
 
 serve(async (req) => {
@@ -33,7 +47,7 @@ serve(async (req) => {
   }
 
   try {
-    const { message } = await req.json();
+    const { message, pin } = await req.json();
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('No authorization header');
 
@@ -65,6 +79,32 @@ serve(async (req) => {
         .eq('portfolio_id', portfolio.id)
         .single();
 
+      const currentPrice = stock?.current_price || 100; // Mock price if stock doesn't exist
+      const totalAmount = currentPrice * tradeCommand.units;
+
+      // If PIN is not provided, return trade confirmation details
+      if (!pin) {
+        return new Response(
+          JSON.stringify({ 
+            reply: `Would you like to ${tradeCommand.type.toLowerCase()} ${tradeCommand.units} shares of ${tradeCommand.symbol} at $${currentPrice} per share?\nTotal amount: $${totalAmount}\n\nPlease confirm by entering PIN code (1234 for testing).`,
+            awaitingPin: true,
+            tradeCommand
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Verify PIN
+      if (pin !== PIN) {
+        return new Response(
+          JSON.stringify({ 
+            reply: "Incorrect PIN. Please try again.",
+            error: "Invalid PIN"
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       if (stockError && tradeCommand.type === 'SELL') {
         return new Response(
           JSON.stringify({ 
@@ -91,8 +131,8 @@ serve(async (req) => {
           stock_id: stock?.id,
           type: tradeCommand.type,
           units: tradeCommand.units,
-          price_per_unit: stock?.current_price || 0,
-          total_amount: (stock?.current_price || 0) * tradeCommand.units
+          price_per_unit: currentPrice,
+          total_amount: totalAmount
         }])
         .select()
         .single();
@@ -117,13 +157,13 @@ serve(async (req) => {
             symbol: tradeCommand.symbol,
             name: tradeCommand.symbol,
             units: tradeCommand.units,
-            current_price: 0
+            current_price: currentPrice
           }]);
       }
 
       return new Response(
         JSON.stringify({ 
-          reply: `Successfully ${tradeCommand.type === 'BUY' ? 'bought' : 'sold'} ${tradeCommand.units} shares of ${tradeCommand.symbol}!`
+          reply: `Successfully ${tradeCommand.type.toLowerCase()}ed ${tradeCommand.units} shares of ${tradeCommand.symbol} at $${currentPrice} per share.\nTotal amount: $${totalAmount}`
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -148,7 +188,10 @@ Holdings: ${portfolio.stocks?.map(stock =>
   `${stock.symbol} (${stock.units} @ $${stock.current_price?.toLocaleString() ?? '0'}, ${stock.price_change > 0 ? '+' : ''}${stock.price_change}%)`
 ).join(', ')}
 
-You can execute trades by saying "buy X SYMBOL" or "sell X SYMBOL" (e.g., "buy 10 AAPL" or "sell 5 TSLA").
+Trading Examples:
+- "Buy 5 shares of Apple" or "Buy 5 AAPL"
+- "Sell 3 shares of Tesla" or "Sell 3 TSLA"
+You'll be asked to confirm the trade and enter PIN code (1234).
 
 Question: ${message}`;
 
@@ -163,14 +206,14 @@ Question: ${message}`;
         messages: [
           {
             role: 'system',
-            content: `You are a friendly investment assistant. Keep responses brief and conversational. Mention that users can execute trades by typing "buy X SYMBOL" or "sell X SYMBOL".
+            content: `You are a friendly investment assistant. Keep responses brief and conversational. Show users how to execute trades using natural language.
 
 Guidelines:
 - Keep responses under 3 sentences
 - Use casual, friendly language
 - Reference specific portfolio data naturally
-- Remind users they can trade using simple commands
-- Be encouraging but honest`
+- Show trading examples using both company names and symbols
+- Mention PIN code requirement (1234)`
           },
           {
             role: 'user',

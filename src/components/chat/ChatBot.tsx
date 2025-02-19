@@ -15,18 +15,26 @@ interface Message {
   content: string;
 }
 
+interface TradeCommand {
+  type: 'BUY' | 'SELL';
+  units: number;
+  symbol: string;
+}
+
 const QUICK_ACTIONS = [
   { icon: Wallet, label: "Portfolio Summary", query: "Give me a quick summary of my portfolio performance" },
   { icon: TrendingUp, label: "Best Performers", query: "What are my best performing stocks?" },
   { icon: LineChart, label: "Market Analysis", query: "How is the market affecting my portfolio?" },
   { icon: AlertCircle, label: "Risk Assessment", query: "What's my portfolio risk level?" },
-  { icon: DollarSign, label: "Trade Example", query: "How do I execute trades?" },
+  { icon: DollarSign, label: "Trade Example", query: "Show me how to buy and sell stocks" },
 ];
 
 export const ChatBot = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [awaitingPin, setAwaitingPin] = useState(false);
+  const [pendingTrade, setPendingTrade] = useState<TradeCommand | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -67,10 +75,10 @@ export const ChatBot = () => {
           
           // Show toast for new transactions
           if (payload.eventType === 'INSERT') {
-            const { type, symbol, units } = payload.new;
+            const { type, units, price_per_unit, total_amount } = payload.new;
             toast({
               title: `Trade Executed`,
-              description: `Successfully ${type.toLowerCase()}ed ${units} shares`,
+              description: `Successfully ${type.toLowerCase()}ed ${units} shares at $${price_per_unit} per share. Total: $${total_amount}`,
               variant: "default",
             });
           }
@@ -89,12 +97,28 @@ export const ChatBot = () => {
       setIsLoading(true);
       setMessages(prev => [...prev, { role: 'user', content: message }]);
 
+      const payload: any = { message };
+      if (awaitingPin) {
+        payload.pin = message;
+        payload.tradeCommand = pendingTrade;
+      }
+
       const { data, error } = await supabase.functions.invoke('portfolio-chat', {
-        body: { message },
+        body: payload,
       });
 
       if (error) throw error;
+
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+      
+      if (data.awaitingPin) {
+        setAwaitingPin(true);
+        setPendingTrade(data.tradeCommand);
+      } else {
+        setAwaitingPin(false);
+        setPendingTrade(null);
+      }
+      
     } catch (error) {
       console.error('Chat error:', error);
       toast({
@@ -144,7 +168,7 @@ export const ChatBot = () => {
           <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.length === 0 ? (
               <div className="text-center text-gray-400 pt-8">
-                Hey! You can ask me anything about your portfolio or try executing trades (e.g., "buy 10 AAPL" or "sell 5 TSLA").
+                Hey! You can ask me anything about your portfolio or try executing trades using natural language (e.g., "buy 5 shares of Apple" or "sell 3 TSLA").
               </div>
             ) : (
               messages.map((message, index) => (
@@ -158,7 +182,11 @@ export const ChatBot = () => {
           </CardContent>
 
           <div className="p-4 border-t border-white/10">
-            <ChatInput onSend={handleSendMessage} disabled={isLoading} />
+            <ChatInput 
+              onSend={handleSendMessage} 
+              disabled={isLoading}
+              placeholder={awaitingPin ? "Enter PIN (1234)" : "Ask about your portfolio..."}
+            />
           </div>
         </Card>
       ) : (
