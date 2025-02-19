@@ -1,3 +1,4 @@
+
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -20,7 +21,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useEffect } from 'react';
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 
 interface Stock {
   id: string;
@@ -52,6 +53,8 @@ const Dashboard = () => {
   const { data: portfolio, isLoading, error } = useQuery<Portfolio>({
     queryKey: ['portfolio', user?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('No user ID');
+
       const { data, error } = await supabase
         .from('portfolios')
         .select(`
@@ -67,7 +70,7 @@ const Dashboard = () => {
             volume
           )
         `)
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .maybeSingle();
       
       if (error) throw error;
@@ -78,7 +81,7 @@ const Dashboard = () => {
           .from('portfolios')
           .insert([
             { 
-              user_id: user?.id,
+              user_id: user.id,
               total_holding: 0,
               total_profit: 0,
               total_investment: 0,
@@ -101,7 +104,10 @@ const Dashboard = () => {
           .single();
         
         if (createError) throw createError;
-        return newPortfolio;
+        return {
+          ...newPortfolio,
+          stocks: []  // Ensure stocks is an empty array rather than null
+        };
       }
 
       // Calculate portfolio totals
@@ -123,6 +129,7 @@ const Dashboard = () => {
       
       return {
         ...data,
+        stocks: data.stocks || [], // Ensure stocks is never null
         total_holding: totalHolding,
         active_stocks: activeStocks,
       };
@@ -178,7 +185,7 @@ const Dashboard = () => {
       supabase.removeChannel(channel);
       clearInterval(updateInterval);
     };
-  }, [user?.id, queryClient]);
+  }, [user?.id, queryClient, toast]);
 
   if (!user) {
     return <Navigate to="/login" />;
@@ -210,7 +217,7 @@ const Dashboard = () => {
     );
   }
 
-  // Get the first 5 stocks for the stock cards
+  // Get the first 5 stocks for the stock cards, ensure we have an array
   const topStocks = portfolio?.stocks?.slice(0, 5) || [];
   const stockIcons = {
     AAPL: Apple,
