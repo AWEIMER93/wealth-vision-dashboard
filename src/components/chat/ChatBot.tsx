@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -26,7 +25,7 @@ const QUICK_ACTIONS = [
   { icon: TrendingUp, label: "Best Performers", query: "What are my best performing stocks?" },
   { icon: LineChart, label: "Market Analysis", query: "How is the market affecting my portfolio?" },
   { icon: AlertCircle, label: "Risk Assessment", query: "What's my portfolio risk level?" },
-  { icon: DollarSign, label: "Trade Example", query: "Show me how to buy and sell stocks" },
+  { icon: DollarSign, label: "Execute Trade", query: "I'd like to make a trade" },
 ];
 
 export const ChatBot = () => {
@@ -131,6 +130,8 @@ export const ChatBot = () => {
     }
   };
 
+  const userName = user?.email?.split('@')[0] || 'there';
+  
   return (
     <div className="fixed bottom-4 right-4 z-50">
       {isOpen ? (
@@ -168,7 +169,7 @@ export const ChatBot = () => {
           <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.length === 0 ? (
               <div className="text-center text-gray-400 pt-8">
-                Hey! You can ask me anything about your portfolio or try executing trades using natural language (e.g., "buy 5 shares of Apple" or "sell 3 TSLA").
+                Hello, {userName}! How can I assist you today?
               </div>
             ) : (
               messages.map((message, index) => (
@@ -185,7 +186,7 @@ export const ChatBot = () => {
             <ChatInput 
               onSend={handleSendMessage} 
               disabled={isLoading}
-              placeholder={awaitingPin ? "Enter PIN (1234)" : "Ask about your portfolio..."}
+              placeholder={awaitingPin ? "Enter your PIN to confirm" : "Ask about your portfolio..."}
             />
           </div>
         </Card>

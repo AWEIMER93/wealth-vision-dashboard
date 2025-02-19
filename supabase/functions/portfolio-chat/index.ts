@@ -47,7 +47,7 @@ serve(async (req) => {
   }
 
   try {
-    const { message, pin } = await req.json();
+    const { message, pin, tradeCommand: pendingTrade } = await req.json();
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('No authorization header');
 
@@ -58,6 +58,94 @@ serve(async (req) => {
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: userError } = await supabase.auth.getUser(token);
     if (userError) throw userError;
+
+    // Handle PIN verification and pending trade
+    if (pin && pendingTrade) {
+      if (pin !== "1234") {
+        return new Response(
+          JSON.stringify({ 
+            reply: "Incorrect PIN. Please try again.",
+            awaitingPin: true,
+            tradeCommand: pendingTrade
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Get user's portfolio
+      const { data: portfolio, error: portfolioError } = await supabase
+        .from('portfolios')
+        .select('id')
+        .eq('user_id', user?.id)
+        .single();
+      
+      if (portfolioError) throw portfolioError;
+
+      // Get stock details
+      const { data: stock, error: stockError } = await supabase
+        .from('stocks')
+        .select('*')
+        .eq('symbol', pendingTrade.symbol)
+        .eq('portfolio_id', portfolio.id)
+        .single();
+
+      const currentPrice = stock?.current_price || 100; // Mock price if stock doesn't exist
+      const totalAmount = currentPrice * pendingTrade.units;
+
+      if (pendingTrade.type === 'SELL' && (!stock || stock.units < pendingTrade.units)) {
+        return new Response(
+          JSON.stringify({ 
+            reply: `You don't have enough ${pendingTrade.symbol} shares to sell.`
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Execute trade
+      const { data: transaction, error: transactionError } = await supabase
+        .from('transactions')
+        .insert([{
+          portfolio_id: portfolio.id,
+          stock_id: stock?.id,
+          type: pendingTrade.type,
+          units: pendingTrade.units,
+          price_per_unit: currentPrice,
+          total_amount: totalAmount
+        }])
+        .select()
+        .single();
+
+      if (transactionError) throw transactionError;
+
+      // Update stock units
+      const newUnits = pendingTrade.type === 'BUY' 
+        ? (stock?.units || 0) + pendingTrade.units
+        : stock.units - pendingTrade.units;
+
+      if (stock) {
+        await supabase
+          .from('stocks')
+          .update({ units: newUnits })
+          .eq('id', stock.id);
+      } else if (pendingTrade.type === 'BUY') {
+        await supabase
+          .from('stocks')
+          .insert([{
+            portfolio_id: portfolio.id,
+            symbol: pendingTrade.symbol,
+            name: pendingTrade.symbol,
+            units: pendingTrade.units,
+            current_price: currentPrice
+          }]);
+      }
+
+      return new Response(
+        JSON.stringify({ 
+          reply: `Trade executed successfully: ${pendingTrade.type.toLowerCase()}ed ${pendingTrade.units} shares of ${pendingTrade.symbol} at $${currentPrice} per share. Total amount: $${totalAmount}`
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Check if message is a trade command
     const tradeCommand = parseTradeCommand(message);
@@ -82,94 +170,17 @@ serve(async (req) => {
       const currentPrice = stock?.current_price || 100; // Mock price if stock doesn't exist
       const totalAmount = currentPrice * tradeCommand.units;
 
-      // If PIN is not provided, return trade confirmation details
-      if (!pin) {
-        return new Response(
-          JSON.stringify({ 
-            reply: `Would you like to ${tradeCommand.type.toLowerCase()} ${tradeCommand.units} shares of ${tradeCommand.symbol} at $${currentPrice} per share?\nTotal amount: $${totalAmount}\n\nPlease confirm by entering PIN code (1234 for testing).`,
-            awaitingPin: true,
-            tradeCommand
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // Verify PIN
-      if (pin !== PIN) {
-        return new Response(
-          JSON.stringify({ 
-            reply: "Incorrect PIN. Please try again.",
-            error: "Invalid PIN"
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      if (stockError && tradeCommand.type === 'SELL') {
-        return new Response(
-          JSON.stringify({ 
-            reply: `You don't own any ${tradeCommand.symbol} shares to sell.`
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      if (tradeCommand.type === 'SELL' && stock.units < tradeCommand.units) {
-        return new Response(
-          JSON.stringify({ 
-            reply: `You only have ${stock.units} shares of ${tradeCommand.symbol} to sell.`
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // Execute trade
-      const { data: transaction, error: transactionError } = await supabase
-        .from('transactions')
-        .insert([{
-          portfolio_id: portfolio.id,
-          stock_id: stock?.id,
-          type: tradeCommand.type,
-          units: tradeCommand.units,
-          price_per_unit: currentPrice,
-          total_amount: totalAmount
-        }])
-        .select()
-        .single();
-
-      if (transactionError) throw transactionError;
-
-      // Update stock units
-      const newUnits = tradeCommand.type === 'BUY' 
-        ? (stock?.units || 0) + tradeCommand.units
-        : stock.units - tradeCommand.units;
-
-      if (stock) {
-        await supabase
-          .from('stocks')
-          .update({ units: newUnits })
-          .eq('id', stock.id);
-      } else if (tradeCommand.type === 'BUY') {
-        await supabase
-          .from('stocks')
-          .insert([{
-            portfolio_id: portfolio.id,
-            symbol: tradeCommand.symbol,
-            name: tradeCommand.symbol,
-            units: tradeCommand.units,
-            current_price: currentPrice
-          }]);
-      }
-
       return new Response(
         JSON.stringify({ 
-          reply: `Successfully ${tradeCommand.type.toLowerCase()}ed ${tradeCommand.units} shares of ${tradeCommand.symbol} at $${currentPrice} per share.\nTotal amount: $${totalAmount}`
+          reply: `Would you like to ${tradeCommand.type.toLowerCase()} ${tradeCommand.units} shares of ${tradeCommand.symbol} at $${currentPrice} per share?\nTotal amount: $${totalAmount}\n\nPlease enter your PIN to confirm this trade.`,
+          awaitingPin: true,
+          tradeCommand
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // If not a trade command, proceed with regular chat
+    // Regular chat functionality
     const { data: portfolio, error: portfolioError } = await supabase
       .from('portfolios')
       .select(`
@@ -188,10 +199,9 @@ Holdings: ${portfolio.stocks?.map(stock =>
   `${stock.symbol} (${stock.units} @ $${stock.current_price?.toLocaleString() ?? '0'}, ${stock.price_change > 0 ? '+' : ''}${stock.price_change}%)`
 ).join(', ')}
 
-Trading Examples:
-- "Buy 5 shares of Apple" or "Buy 5 AAPL"
-- "Sell 3 shares of Tesla" or "Sell 3 TSLA"
-You'll be asked to confirm the trade and enter PIN code (1234).
+You can execute trades using natural language, for example:
+- "Buy 5 shares of Apple"
+- "Sell 3 shares of Tesla"
 
 Question: ${message}`;
 
@@ -206,14 +216,14 @@ Question: ${message}`;
         messages: [
           {
             role: 'system',
-            content: `You are a friendly investment assistant. Keep responses brief and conversational. Show users how to execute trades using natural language.
+            content: `You are a friendly investment assistant for ${user.email?.split('@')[0]}. Keep responses brief and conversational.
 
 Guidelines:
+- Use first name in greetings
 - Keep responses under 3 sentences
 - Use casual, friendly language
 - Reference specific portfolio data naturally
-- Show trading examples using both company names and symbols
-- Mention PIN code requirement (1234)`
+- Mention trade execution using natural language`
           },
           {
             role: 'user',
