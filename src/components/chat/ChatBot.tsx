@@ -90,9 +90,25 @@ export const ChatBot = () => {
   }, [user?.id, queryClient, toast]);
 
   const handleSendMessage = async (message: string) => {
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in to use the chat feature.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setIsLoading(true);
       setMessages(prev => [...prev, { role: 'user', content: message }]);
+
+      // Get the session token
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        throw new Error('Authentication required');
+      }
 
       const body = awaitingPin && pendingTrade 
         ? { message, pin: message, tradeCommand: pendingTrade }
@@ -101,6 +117,7 @@ export const ChatBot = () => {
       const { data, error } = await supabase.functions.invoke('portfolio-chat', {
         body,
         headers: {
+          Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json'
         }
       });
@@ -140,6 +157,11 @@ export const ChatBot = () => {
       setIsLoading(false);
     }
   };
+
+  // Don't render the chat bot if user is not authenticated
+  if (!user) {
+    return null;
+  }
 
   const userName = user?.email?.split('@')[0] || 'there';
   
