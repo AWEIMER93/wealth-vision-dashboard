@@ -5,6 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import { RealtimeChat } from '@/utils/RealtimeAudio';
 import { Mic, MicOff } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
+import { supabase } from '@/integrations/supabase/client';
 
 interface VoiceInterfaceProps {
   onSpeakingChange: (speaking: boolean) => void;
