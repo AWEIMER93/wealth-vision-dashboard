@@ -1,3 +1,4 @@
+
 import { useAuth } from '@/providers/AuthProvider';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -18,13 +19,17 @@ const Dashboard = () => {
     if (!user) navigate('/login');
   }, [user, loading, navigate]);
 
-  const { data: portfolios, isLoading } = useQuery(['portfolios'], async () => {
-    const { data, error } = await supabase
-      .from('portfolios')
-      .select('*')
-      .eq('user_id', user?.id);
-    if (error) throw new Error(error.message);
-    return data;
+  const { data: portfolios, isLoading } = useQuery<Portfolio[]>({
+    queryKey: ['portfolios', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('portfolios')
+        .select('*')
+        .eq('user_id', user?.id);
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    enabled: !!user?.id
   });
 
   if (isLoading) return <Loader2 />;
