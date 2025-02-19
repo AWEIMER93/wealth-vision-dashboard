@@ -1,3 +1,4 @@
+
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useEffect } from 'react';
+import { useToast } from "@/components/ui/use-toast";
 
 interface Stock {
   id: string;
@@ -46,8 +48,9 @@ const Dashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
-  const { data: portfolio, isLoading } = useQuery<Portfolio>({
+  const { data: portfolio, isLoading, error } = useQuery<Portfolio>({
     queryKey: ['portfolio', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -69,7 +72,39 @@ const Dashboard = () => {
         .maybeSingle();
       
       if (error) throw error;
-      if (!data) throw new Error('Portfolio not found');
+      
+      // Create a portfolio if it doesn't exist
+      if (!data) {
+        const { data: newPortfolio, error: createError } = await supabase
+          .from('portfolios')
+          .insert([
+            { 
+              user_id: user?.id,
+              total_holding: 0,
+              total_profit: 0,
+              total_investment: 0,
+              active_stocks: 0
+            }
+          ])
+          .select(`
+            *,
+            stocks (
+              id,
+              symbol,
+              name,
+              units,
+              current_price,
+              price_change,
+              market_cap,
+              volume
+            )
+          `)
+          .single();
+        
+        if (createError) throw createError;
+        return newPortfolio;
+      }
+      
       return data;
     },
     enabled: !!user?.id
@@ -79,18 +114,6 @@ const Dashboard = () => {
     await signOut();
     navigate('/login');
   };
-
-  if (!user) {
-    return <Navigate to="/login" />;
-  }
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#121212] flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-      </div>
-    );
-  }
 
   // Subscribe to real-time updates
   useEffect(() => {
@@ -106,7 +129,6 @@ const Dashboard = () => {
           table: 'stocks'
         },
         (payload) => {
-          // Invalidate the query to refetch data
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
         }
       )
@@ -114,7 +136,19 @@ const Dashboard = () => {
 
     // Update stocks every minute
     const updateInterval = setInterval(async () => {
-      await supabase.functions.invoke('update-stock-prices');
+      try {
+        const { error } = await supabase.functions.invoke('update-stock-prices');
+        if (error) {
+          console.error('Failed to update stock prices:', error);
+          toast({
+            title: "Error updating stocks",
+            description: "Failed to fetch latest stock prices",
+            variant: "destructive",
+          });
+        }
+      } catch (err) {
+        console.error('Error invoking function:', err);
+      }
     }, 60000); // Every minute
 
     // Initial update
@@ -124,7 +158,37 @@ const Dashboard = () => {
       supabase.removeChannel(channel);
       clearInterval(updateInterval);
     };
-  }, [user?.id]);
+  }, [user?.id, queryClient]);
+
+  if (!user) {
+    return <Navigate to="/login" />;
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#121212] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+      </div>
+    );
+  }
+
+  if (error) {
+    toast({
+      title: "Error loading portfolio",
+      description: error.message,
+      variant: "destructive",
+    });
+    return (
+      <div className="min-h-screen bg-[#121212] flex items-center justify-center text-white">
+        <div className="text-center">
+          <p className="text-xl mb-4">Failed to load portfolio</p>
+          <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] })}>
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // Get the first 5 stocks for the stock cards
   const topStocks = portfolio?.stocks?.slice(0, 5) || [];
