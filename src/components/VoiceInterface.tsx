@@ -47,7 +47,7 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
       
       if (audioRef.current) {
         audioRef.current.src = url;
-        audioRef.current.play();
+        await audioRef.current.play();
       }
     } catch (error) {
       console.error('Error playing audio:', error);

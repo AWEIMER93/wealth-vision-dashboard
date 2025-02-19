@@ -77,7 +77,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "gpt-4o-realtime-preview-2024-12-17",
-        voice: "alloy",
+        voice: null, // Disable OpenAI voice
         instructions: `You are a highly knowledgeable and conversational portfolio advisor. 
           Here is the user's current portfolio data: ${JSON.stringify(portfolioContext)}.
           Use this data to provide personalized advice and real-time insights.
@@ -85,6 +85,7 @@ serve(async (req) => {
           and offering insights about market conditions. Always be professional but friendly, 
           and make sure to confirm important actions like trades before executing them. 
           If a user wants to execute a trade, always ask for confirmation and use a PIN for security.
+          After confirming a trade, always mention that it may take 1-2 minutes for the changes to reflect in their account.
           When discussing numerical values, always format them appropriately (e.g., $1,234.56 for currency, 12.34% for percentages).
           Remember to reference their actual holdings when discussing their portfolio.`
       }),
