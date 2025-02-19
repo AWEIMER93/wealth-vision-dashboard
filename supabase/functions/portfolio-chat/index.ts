@@ -43,8 +43,25 @@ serve(async (req) => {
     
     if (portfolioError) throw portfolioError;
 
-    // Call OpenAI with portfolio context
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+    
+    // Create a message that includes the portfolio context
+    const portfolioContext = `
+Current Portfolio Overview:
+Total Holdings: $${portfolio.total_holding?.toLocaleString() ?? '0'}
+Total Profit: $${portfolio.total_profit?.toLocaleString() ?? '0'}
+Active Stocks: ${portfolio.active_stocks ?? 0}
+
+Stock Holdings:
+${portfolio.stocks?.map(stock => 
+  `${stock.symbol}: ${stock.units} units at $${stock.current_price?.toLocaleString() ?? '0'} (${stock.price_change > 0 ? '+' : ''}${stock.price_change}%)`
+).join('\n')}
+
+User Question: ${message}
+
+Please analyze this portfolio data and provide specific, data-driven advice. When discussing stocks, reference the actual numbers from the portfolio.`;
+
+    // Call OpenAI with the specialized model and system prompt
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -56,20 +73,29 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `You are a helpful portfolio assistant. You have access to the user's portfolio data:
-            Total Holdings: $${portfolio.total_holding}
-            Total Profit: $${portfolio.total_profit}
-            Active Stocks: ${portfolio.active_stocks}
+            content: `You are a professional investment and portfolio management AI assistant. Your expertise includes:
+            - Stock market analysis
+            - Portfolio performance evaluation
+            - Investment strategy recommendations
+            - Risk assessment
+            - Market trends and patterns
             
-            Stocks in portfolio:
-            ${portfolio.stocks.map(stock => 
-              `${stock.symbol}: ${stock.units} units at $${stock.current_price}`
-            ).join('\n')}
+            When responding:
+            1. Always reference specific data from the user's portfolio
+            2. Provide clear, actionable insights
+            3. Explain your reasoning using portfolio metrics
+            4. Be direct and professional
+            5. If discussing a stock, always mention its current price and performance
+            6. Include relevant market context when appropriate
             
-            Provide concise, relevant answers about their portfolio and investments.`
+            You have access to real-time portfolio data which will be provided with each message.`
           },
-          { role: 'user', content: message }
+          {
+            role: 'user',
+            content: portfolioContext
+          }
         ],
+        temperature: 0.7,
       }),
     });
 
