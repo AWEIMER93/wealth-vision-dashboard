@@ -14,11 +14,16 @@ serve(async (req) => {
   }
 
   try {
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not set');
+    }
+
     // Request an ephemeral token from OpenAI
     const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -35,6 +40,8 @@ serve(async (req) => {
     });
 
     const data = await response.json();
+    console.log("Session created:", data);
+
     return new Response(JSON.stringify(data), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
