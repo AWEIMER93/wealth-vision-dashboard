@@ -401,7 +401,18 @@ const Dashboard = () => {
               <Card key={stock.id} className="bg-[#1A1A1A] border-none">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-4">
-                    <StockIcon className="h-6 w-6" />
+                    <img 
+                      src={`https://logo.clearbit.com/${stock.symbol.toLowerCase()}.com`}
+                      alt={stock.name}
+                      className="h-8 w-8 rounded"
+                      onError={(e) => {
+                        // Fallback to Lucide icon if logo fails to load
+                        e.currentTarget.style.display = 'none';
+                        const iconEl = e.currentTarget.nextElementSibling;
+                        if (iconEl) iconEl.style.display = 'block';
+                      }}
+                    />
+                    <StockIcon className="h-6 w-6 hidden" /> {/* Hidden by default, shown if logo fails */}
                     <p className="text-sm text-gray-400">Shares {stock.shares}</p>
                   </div>
                   <div>
@@ -436,7 +447,12 @@ const Dashboard = () => {
             </div>
             <div className="h-[300px] w-full">
               {performanceData.length > 0 && (
-                <LineChart width={800} height={300} data={performanceData}>
+                <LineChart 
+                  width={800} 
+                  height={300} 
+                  data={performanceData}
+                  margin={{ top: 5, right: 30, left: 60, bottom: 5 }}
+                >
                   <XAxis 
                     dataKey="time" 
                     stroke="#666"
@@ -446,6 +462,7 @@ const Dashboard = () => {
                     stroke="#666"
                     tick={{ fill: '#666' }}
                     tickFormatter={(value) => `$${value.toLocaleString()}`}
+                    width={60}
                   />
                   <Tooltip 
                     contentStyle={{ 
@@ -453,6 +470,7 @@ const Dashboard = () => {
                       border: '1px solid rgba(255,255,255,0.1)',
                       color: '#fff'
                     }}
+                    formatter={(value: any) => [`$${value.toLocaleString()}`, 'Value']}
                   />
                   <Line 
                     type="monotone" 

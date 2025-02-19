@@ -1,4 +1,3 @@
-
 import { supabase } from "@/integrations/supabase/client";
 
 export class AudioRecorder {
@@ -114,11 +113,6 @@ export class RealtimeChat {
   async init() {
     try {
       const data = await this.initWithRetry();
-      
-      // Store voice settings
-      this.voiceId = data.voice_id;
-      this.elevenLabsKey = data.eleven_labs_key;
-
       const EPHEMERAL_KEY = data.client_secret.value;
       console.log('Successfully obtained ephemeral token');
 

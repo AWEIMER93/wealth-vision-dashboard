@@ -9,7 +9,6 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { 
       status: 200,
@@ -19,16 +18,14 @@ serve(async (req) => {
 
   try {
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
-    const ELEVEN_LABS_API_KEY = Deno.env.get('ELEVEN_LABS_API_KEY');
     
-    if (!OPENAI_API_KEY || !ELEVEN_LABS_API_KEY) {
+    if (!OPENAI_API_KEY) {
       return new Response(
-        JSON.stringify({ error: 'API keys not configured' }),
+        JSON.stringify({ error: 'OpenAI API key not configured' }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Get user data from request
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(
@@ -37,12 +34,10 @@ serve(async (req) => {
       );
     }
 
-    // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get user's JWT token
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: userError } = await supabase.auth.getUser(token);
     
@@ -55,7 +50,6 @@ serve(async (req) => {
 
     console.log('Fetching OpenAI token...');
 
-    // Request an ephemeral token from OpenAI
     const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
       method: "POST",
       headers: {
@@ -64,8 +58,8 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "gpt-4o-realtime-preview-2024-12-17",
-        voice: null,
-        instructions: "You are a knowledgeable portfolio advisor providing real-time investment advice."
+        voice: "nova", // Using OpenAI's best voice
+        instructions: "You are a knowledgeable portfolio advisor providing real-time investment advice. Always format currency values properly and provide clear explanations."
       }),
     });
 
@@ -77,9 +71,9 @@ serve(async (req) => {
       );
     }
 
-    const openAIData = await response.json();
+    const data = await response.json();
     
-    if (!openAIData?.client_secret?.value) {
+    if (!data?.client_secret?.value) {
       return new Response(
         JSON.stringify({ error: 'Invalid response from OpenAI' }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -88,15 +82,8 @@ serve(async (req) => {
 
     console.log('Successfully obtained OpenAI token');
 
-    // Add ElevenLabs voice ID to response
-    const responseData = {
-      ...openAIData,
-      voice_id: "EXAVITQu4vr4xnSDxMaL", // Sarah's voice ID
-      eleven_labs_key: ELEVEN_LABS_API_KEY,
-    };
-
     return new Response(
-      JSON.stringify(responseData),
+      JSON.stringify(data),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
@@ -109,7 +96,7 @@ serve(async (req) => {
         timestamp: new Date().toISOString()
       }),
       { 
-        status: 200, // Always return 200 to prevent non-2xx errors
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );
