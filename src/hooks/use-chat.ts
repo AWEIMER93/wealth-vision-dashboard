@@ -14,8 +14,6 @@ const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
   }).format(amount);
 };
 
@@ -32,7 +30,7 @@ export const useChat = () => {
   const processTradeConfirmation = async (message: string) => {
     if (message === '1234' && messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
-      if (lastMessage.role === 'assistant' && lastMessage.content.includes('PIN: 1234')) {
+      if (lastMessage.role === 'assistant' && lastMessage.content.includes('PIN')) {
         // Extract trade details from previous messages
         const tradeMessage = messages[messages.length - 2].content;
         const buyMatch = tradeMessage.match(/buy\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i);
@@ -57,7 +55,7 @@ export const useChat = () => {
           }
           
           try {
-            // Start a transaction
+            // Start transaction
             // Get current stock price and stock data
             const { data: stock, error: stockError } = await supabase
               .from('stocks')
@@ -97,7 +95,7 @@ export const useChat = () => {
             if (transactionError) throw transactionError;
 
             // Update or create stock holding
-            const { data: existingStock } = await supabase
+            const { data: existingStock, error: existingStockError } = await supabase
               .from('stocks')
               .select('*')
               .eq('portfolio_id', portfolio.id)
