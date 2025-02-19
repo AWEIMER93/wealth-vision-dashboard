@@ -68,36 +68,54 @@ serve(async (req) => {
       }))
     } : null;
 
-    // Request an ephemeral token from OpenAI
-    const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-realtime-preview-2024-12-17",
-        voice: null, // Disable OpenAI voice
-        instructions: `You are a highly knowledgeable and conversational portfolio advisor. 
-          Here is the user's current portfolio data: ${JSON.stringify(portfolioContext)}.
-          Use this data to provide personalized advice and real-time insights.
-          You help users manage their investments by providing real-time advice, executing trades, 
-          and offering insights about market conditions. Always be professional but friendly, 
-          and make sure to confirm important actions like trades before executing them. 
-          If a user wants to execute a trade, always ask for confirmation and use a PIN for security.
-          After confirming a trade, always mention that it may take 1-2 minutes for the changes to reflect in their account.
-          When discussing numerical values, always format them appropriately (e.g., $1,234.56 for currency, 12.34% for percentages).
-          Remember to reference their actual holdings when discussing their portfolio.`
-      }),
-    });
+    // Request an ephemeral token from OpenAI with retries
+    let openAIData;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-realtime-preview-2024-12-17",
+            voice: null,
+            instructions: `You are a highly knowledgeable and conversational portfolio advisor. 
+              Here is the user's current portfolio data: ${JSON.stringify(portfolioContext)}.
+              Use this data to provide personalized advice and real-time insights.
+              You help users manage their investments by providing real-time advice, executing trades, 
+              and offering insights about market conditions. Always be professional but friendly, 
+              and make sure to confirm important actions like trades before executing them. 
+              If a user wants to execute a trade, always ask for confirmation and use a PIN for security.
+              After confirming a trade, always mention that it may take 1-2 minutes for the changes to reflect in their account.
+              When discussing numerical values, always format them appropriately (e.g., $1,234.56 for currency, 12.34% for percentages).
+              Remember to reference their actual holdings when discussing their portfolio.`
+          }),
+        });
 
-    const openAIData = await response.json();
-    console.log("Session created:", openAIData);
+        if (!response.ok) {
+          throw new Error(`Failed to get token: ${response.status}`);
+        }
+
+        openAIData = await response.json();
+        console.log("Session created successfully:", openAIData);
+        break;
+      } catch (error) {
+        console.error(`Attempt ${i + 1} failed:`, error);
+        if (i === 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+      }
+    }
+
+    if (!openAIData?.client_secret?.value) {
+      throw new Error('Failed to get valid token from OpenAI');
+    }
 
     // Add ElevenLabs voice ID to response
     const responseData = {
       ...openAIData,
-      voice_id: "EXAVITQu4vr4xnSDxMaL", // Sarah's voice ID from ElevenLabs
+      voice_id: "EXAVITQu4vr4xnSDxMaL", // Sarah's voice ID
       eleven_labs_key: ELEVEN_LABS_API_KEY,
     };
 
@@ -106,7 +124,10 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("Error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ 
+      error: error.message,
+      details: error.stack
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

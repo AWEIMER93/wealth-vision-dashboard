@@ -68,6 +68,7 @@ export class RealtimeChat {
   private recorder: AudioRecorder | null = null;
   public voiceId: string | null = null;
   public elevenLabsKey: string | null = null;
+  private portfolioChannel: any = null;
 
   constructor(private onMessage: (message: any) => void) {
     this.audioEl = document.createElement("audio");
@@ -128,6 +129,10 @@ export class RealtimeChat {
         },
       });
 
+      if (!sdpResponse.ok) {
+        throw new Error(`Failed to connect to OpenAI: ${sdpResponse.status}`);
+      }
+
       const answer = {
         type: "answer" as RTCSdpType,
         sdp: await sdpResponse.text(),
@@ -135,6 +140,28 @@ export class RealtimeChat {
       
       await this.pc.setRemoteDescription(answer);
       console.log("WebRTC connection established");
+
+      // Subscribe to real-time portfolio updates
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        this.portfolioChannel = supabase
+          .channel('portfolio-updates')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'portfolios',
+              filter: `user_id=eq.${session.user.id}`
+            },
+            (payload) => {
+              console.log('Portfolio updated:', payload);
+              // Fetch updated portfolio data
+              this.sendMessage("My portfolio has been updated. Please get the latest data.");
+            }
+          )
+          .subscribe();
+      }
 
       // Start recording
       this.recorder = new AudioRecorder((audioData) => {
@@ -197,6 +224,9 @@ export class RealtimeChat {
 
   disconnect() {
     this.recorder?.stop();
+    if (this.portfolioChannel) {
+      supabase.removeChannel(this.portfolioChannel);
+    }
     this.dc?.close();
     this.pc?.close();
   }
