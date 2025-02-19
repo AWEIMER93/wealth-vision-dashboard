@@ -15,8 +15,8 @@ export const ChatMessage = ({ content, role }: ChatMessageProps) => {
       <div className={cn(
         "rounded-lg px-4 py-2",
         role === 'user' 
-          ? "bg-primary text-primary-foreground" 
-          : "bg-muted"
+          ? "bg-blue-500 text-white" 
+          : "bg-white/5 text-white"
       )}>
         {content}
       </div>
