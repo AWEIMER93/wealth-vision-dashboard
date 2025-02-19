@@ -58,6 +58,7 @@ export type Database = {
           price_change: number | null
           symbol: string
           units: number
+          updated_at: string | null
           volume: number | null
         }
         Insert: {
@@ -70,6 +71,7 @@ export type Database = {
           price_change?: number | null
           symbol: string
           units: number
+          updated_at?: string | null
           volume?: number | null
         }
         Update: {
@@ -82,6 +84,7 @@ export type Database = {
           price_change?: number | null
           symbol?: string
           units?: number
+          updated_at?: string | null
           volume?: number | null
         }
         Relationships: [
