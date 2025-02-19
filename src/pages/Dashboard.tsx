@@ -1,4 +1,3 @@
-
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -49,6 +48,19 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      navigate('/login');
+    } catch (error) {
+      toast({
+        title: "Error signing out",
+        description: "Failed to sign out. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const { data: portfolio, isLoading, error } = useQuery<Portfolio>({
     queryKey: ['portfolio', user?.id],
