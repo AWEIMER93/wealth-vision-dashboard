@@ -21,14 +21,17 @@ export const useChat = () => {
       setMessages(prev => [...prev, { role: 'user', content }]);
 
       // Get current session
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
         throw new Error('Authentication required');
       }
 
       // Call the edge function
       const { data, error } = await supabase.functions.invoke('chat', {
-        body: { message: content },
+        body: { 
+          message: content,
+          userId: user.id
+        },
       });
 
       if (error) throw error;

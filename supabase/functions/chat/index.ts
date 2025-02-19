@@ -1,6 +1,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -28,6 +29,9 @@ serve(async (req) => {
     if (!message) {
       throw new Error('Message is required');
     }
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
 
     console.log('Processing message:', message);
 
@@ -43,7 +47,8 @@ serve(async (req) => {
       .single();
 
     if (portfolioError) {
-      throw portfolioError;
+      console.error('Portfolio error:', portfolioError);
+      throw new Error('Failed to fetch portfolio data');
     }
 
     // Call OpenAI API with context
@@ -61,9 +66,9 @@ serve(async (req) => {
             content: `You are a professional portfolio management assistant. You help users manage their investments and execute trades.
             
             Current portfolio context:
-            - Total Holdings: $${portfolio.total_holding}
-            - Total Profit: ${portfolio.total_profit}%
-            - Active Stocks: ${portfolio.active_stocks}
+            - Total Holdings: $${portfolio.total_holding?.toLocaleString() ?? '0'}
+            - Total Profit: ${portfolio.total_profit?.toFixed(2) ?? '0'}%
+            - Active Stocks: ${portfolio.active_stocks ?? '0'}
             
             Available actions:
             1. Provide portfolio analysis and insights
@@ -90,11 +95,10 @@ serve(async (req) => {
     if (reply.toLowerCase().includes('execute trade') || 
         reply.toLowerCase().includes('buy shares') || 
         reply.toLowerCase().includes('sell shares')) {
-      // Handle trade execution logic here
-      // This would involve parsing the reply for trade details
-      // and executing the trade through your trading system
       console.log('Trade action detected, processing...');
     }
+
+    console.log('Sending reply:', reply);
 
     return new Response(
       JSON.stringify({ reply }),
