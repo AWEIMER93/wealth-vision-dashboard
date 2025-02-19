@@ -1,4 +1,3 @@
-
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -20,9 +19,10 @@ import {
   MonitorSmartphone
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { ChatBot } from "@/components/chat/ChatBot";
+import VoiceInterface from "@/components/VoiceInterface";
 
 interface Stock {
   id: string;
@@ -50,6 +50,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
 
   const handleSignOut = async () => {
     try {
@@ -465,6 +466,7 @@ const Dashboard = () => {
         </Card>
       </div>
       <ChatBot />
+      <VoiceInterface onSpeakingChange={setIsAiSpeaking} />
     </div>
   );
 };
