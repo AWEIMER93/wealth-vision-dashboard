@@ -1,3 +1,4 @@
+
 import { supabase } from "@/integrations/supabase/client";
 
 export class AudioRecorder {
@@ -70,6 +71,8 @@ export class RealtimeChat {
   private portfolioChannel: any = null;
   private retryCount = 0;
   private maxRetries = 3;
+  private lastUpdateTime: number = 0;
+  private updateThreshold: number = 5000; // 5 seconds threshold between updates
 
   constructor(private onMessage: (message: any) => void) {
     this.audioEl = document.createElement("audio");
@@ -173,7 +176,7 @@ export class RealtimeChat {
       });
       await this.recorder.start();
 
-      // Set up portfolio updates subscription
+      // Set up portfolio updates subscription with throttling
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         this.portfolioChannel = supabase
@@ -187,8 +190,14 @@ export class RealtimeChat {
               filter: `user_id=eq.${session.user.id}`
             },
             (payload) => {
-              console.log('Portfolio updated:', payload);
-              this.sendMessage("My portfolio has been updated. Please get the latest data.");
+              const now = Date.now();
+              if (now - this.lastUpdateTime >= this.updateThreshold) {
+                console.log('Portfolio updated:', payload);
+                this.sendMessage("My portfolio has been updated. Please get the latest data.");
+                this.lastUpdateTime = now;
+              } else {
+                console.log('Update throttled - too soon after last update');
+              }
             }
           )
           .subscribe();
