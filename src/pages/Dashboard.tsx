@@ -30,7 +30,19 @@ const Dashboard = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('portfolios')
-        .select('*, stocks(*)')
+        .select(`
+          *,
+          stocks (
+            id,
+            symbol,
+            name,
+            units,
+            current_price,
+            price_change,
+            market_cap,
+            volume
+          )
+        `)
         .eq('user_id', user?.id)
         .single();
       
@@ -56,6 +68,16 @@ const Dashboard = () => {
       </div>
     );
   }
+
+  // Get the first 5 stocks for the stock cards
+  const topStocks = portfolio?.stocks?.slice(0, 5) || [];
+  const stockIcons = {
+    AAPL: Apple,
+    TSLA: Car,
+    MSFT: Monitor,
+    GOOG: Globe2,
+    NVDA: Cpu
+  };
 
   return (
     <div className="min-h-screen bg-[#121212] text-white">
@@ -101,7 +123,7 @@ const Dashboard = () => {
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-2xl font-medium">Welcome, {user.name}</h1>
+            <h1 className="text-2xl font-medium">Welcome, {user.email?.split('@')[0]}</h1>
             <p className="text-gray-400">Here's your stock portfolio overview</p>
           </div>
           <Button variant="outline" onClick={handleSignOut} className="border-white/10">
@@ -117,8 +139,10 @@ const Dashboard = () => {
                 <p className="text-gray-400 mb-2">Total Holding</p>
                 <div className="flex items-center gap-4">
                   <h2 className="text-4xl font-bold">${portfolio?.total_holding?.toLocaleString() ?? '0.00'}</h2>
-                  <span className="text-green-500 flex items-center gap-1">
-                    +3.5% <ChevronDown className="h-4 w-4 transform rotate-180" />
+                  <span className={`flex items-center gap-1 ${portfolio?.total_profit && portfolio.total_profit > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {portfolio?.total_profit && portfolio.total_profit > 0 ? '+' : '-'}
+                    {Math.abs(portfolio?.total_profit || 0).toFixed(2)}% 
+                    <ChevronDown className={`h-4 w-4 ${portfolio?.total_profit && portfolio.total_profit > 0 ? 'transform rotate-180' : ''}`} />
                   </span>
                 </div>
               </div>
@@ -131,11 +155,20 @@ const Dashboard = () => {
 
         {/* Stock Cards Grid */}
         <div className="grid grid-cols-5 gap-4 mb-8">
-          <StockCard symbol="AAPL" name="Apple" units={104} price={1721.3} change={0.74} Icon={Apple} />
-          <StockCard symbol="TSLA" name="Tesla" units={124} price={1521.3} change={0.74} Icon={Car} />
-          <StockCard symbol="MSFT" name="Microsoft" units={10} price={1721.3} change={0.74} Icon={Monitor} />
-          <StockCard symbol="GOOG" name="Google" units={110} price={1721.3} change={0.74} Icon={Globe2} />
-          <StockCard symbol="NVDA" name="NVIDIA" units={104} price={1721.3} change={0.74} Icon={Cpu} />
+          {topStocks.map(stock => {
+            const StockIcon = stockIcons[stock.symbol as keyof typeof stockIcons] || MonitorSmartphone;
+            return (
+              <StockCard
+                key={stock.id}
+                symbol={stock.symbol}
+                name={stock.name}
+                units={stock.units}
+                price={stock.current_price || 0}
+                change={stock.price_change || 0}
+                Icon={StockIcon}
+              />
+            );
+          })}
         </div>
 
         {/* Portfolio Performance Chart */}
@@ -182,21 +215,30 @@ const Dashboard = () => {
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {portfolio?.stocks?.map((stock) => (
-                  <tr key={stock.id} className="border-t border-white/10">
-                    <td className="py-4 flex items-center gap-2">
-                      <Car className="h-5 w-5" />
-                      {stock.symbol}
-                    </td>
-                    <td className="py-4">${stock.units.toLocaleString()}</td>
-                    <td className="py-4 text-green-500">+3.4%</td>
-                    <td className="py-4">$564.06B</td>
-                    <td className="py-4">$3.97B</td>
-                    <td className="py-4">
-                      <div className="h-6 w-20 bg-gradient-to-r from-green-500/20 to-green-500/10 rounded" />
-                    </td>
-                  </tr>
-                ))}
+                {portfolio?.stocks?.map((stock) => {
+                  const StockIcon = stockIcons[stock.symbol as keyof typeof stockIcons] || MonitorSmartphone;
+                  return (
+                    <tr key={stock.id} className="border-t border-white/10">
+                      <td className="py-4 flex items-center gap-2">
+                        <StockIcon className="h-5 w-5" />
+                        {stock.symbol}
+                      </td>
+                      <td className="py-4">${stock.current_price?.toLocaleString() ?? '0.00'}</td>
+                      <td className={`py-4 ${stock.price_change && stock.price_change > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        {stock.price_change && stock.price_change > 0 ? '+' : ''}{stock.price_change?.toFixed(2) ?? '0.00'}%
+                      </td>
+                      <td className="py-4">${(stock.market_cap / 1e9).toFixed(2)}B</td>
+                      <td className="py-4">${(stock.volume / 1e9).toFixed(2)}B</td>
+                      <td className="py-4">
+                        <div className={`h-6 w-20 bg-gradient-to-r ${
+                          stock.price_change && stock.price_change > 0 
+                            ? 'from-green-500/20 to-green-500/10' 
+                            : 'from-red-500/20 to-red-500/10'
+                        } rounded`} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </CardContent>
