@@ -33,18 +33,23 @@ Deno.serve(async (req) => {
 
     if (stocksError) throw stocksError;
 
+    console.log('Fetching updates for stocks:', stocks);
+
     // Update each stock's price
     for (const stock of stocks) {
+      console.log(`Fetching data for ${stock.symbol}`);
+      
       const response = await fetch(
         `https://finnhub.io/api/v1/quote?symbol=${stock.symbol}&token=${finnhubKey}`
       );
       
       if (!response.ok) {
-        console.error(`Failed to fetch data for ${stock.symbol}`);
+        console.error(`Failed to fetch data for ${stock.symbol}:`, response.statusText);
         continue;
       }
 
       const quote: StockQuote = await response.json();
+      console.log(`Got quote for ${stock.symbol}:`, quote);
 
       // Update stock in database
       const { error: updateError } = await supabase
@@ -60,6 +65,8 @@ Deno.serve(async (req) => {
 
       if (updateError) {
         console.error(`Failed to update ${stock.symbol}:`, updateError);
+      } else {
+        console.log(`Successfully updated ${stock.symbol} price to ${quote.c}`);
       }
     }
 
@@ -71,6 +78,7 @@ Deno.serve(async (req) => {
       }
     );
   } catch (error) {
+    console.error('Error in update-stock-prices function:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
       {
