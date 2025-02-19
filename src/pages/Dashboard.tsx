@@ -75,7 +75,6 @@ const Dashboard = () => {
     queryFn: async () => {
       if (!user?.id) throw new Error('No user ID');
 
-      // Use a regular object for headers instead of Headers instance
       const { data, error } = await supabase
         .from('portfolios')
         .select(`
@@ -96,7 +95,6 @@ const Dashboard = () => {
       
       if (error) throw error;
       
-      // Create a portfolio if it doesn't exist
       if (!data) {
         const { data: newPortfolio, error: createError } = await supabase
           .from('portfolios')
@@ -151,7 +149,6 @@ const Dashboard = () => {
       setPerformanceData(prev => {
         const currentTime = new Date().toLocaleTimeString();
         const newData = [...prev, { time: currentTime, value: totalHolding }];
-        // Keep last 20 data points for the chart
         return newData.slice(-20);
       });
 
@@ -173,13 +170,12 @@ const Dashboard = () => {
         total_holding: totalHolding,
         total_profit: totalHoldingPercentChange,
         active_stocks: activeStocks,
-      };
+      } as Portfolio;
     },
     enabled: !!user?.id,
-    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchInterval: 30000,
   });
 
-  // Subscribe to real-time updates
   useEffect(() => {
     if (!user?.id) return;
 

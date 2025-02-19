@@ -56,8 +56,8 @@ export type Database = {
           name: string
           portfolio_id: string | null
           price_change: number | null
+          shares: number
           symbol: string
-          units: number
           updated_at: string | null
           volume: number | null
         }
@@ -69,8 +69,8 @@ export type Database = {
           name: string
           portfolio_id?: string | null
           price_change?: number | null
+          shares: number
           symbol: string
-          units: number
           updated_at?: string | null
           volume?: number | null
         }
@@ -82,8 +82,8 @@ export type Database = {
           name?: string
           portfolio_id?: string | null
           price_change?: number | null
+          shares?: number
           symbol?: string
-          units?: number
           updated_at?: string | null
           volume?: number | null
         }
@@ -103,33 +103,33 @@ export type Database = {
           id: string
           portfolio_id: string | null
           price_per_unit: number
+          shares: number
           status: string
           stock_id: string | null
           total_amount: number
           type: string
-          units: number
         }
         Insert: {
           executed_at?: string | null
           id?: string
           portfolio_id?: string | null
           price_per_unit: number
+          shares: number
           status?: string
           stock_id?: string | null
           total_amount: number
           type: string
-          units: number
         }
         Update: {
           executed_at?: string | null
           id?: string
           portfolio_id?: string | null
           price_per_unit?: number
+          shares?: number
           status?: string
           stock_id?: string | null
           total_amount?: number
           type?: string
-          units?: number
         }
         Relationships: [
           {
