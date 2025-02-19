@@ -1,8 +1,7 @@
-
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from "@/integrations/supabase/client";
 import { 
   Loader2, 
@@ -20,6 +19,7 @@ import {
   MonitorSmartphone
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { useEffect } from 'react';
 
 interface Stock {
   id: string;
@@ -45,6 +45,7 @@ interface Portfolio {
 const Dashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: portfolio, isLoading } = useQuery<Portfolio>({
     queryKey: ['portfolio', user?.id],
@@ -90,6 +91,40 @@ const Dashboard = () => {
       </div>
     );
   }
+
+  // Subscribe to real-time updates
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel('stock-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'stocks'
+        },
+        (payload) => {
+          // Invalidate the query to refetch data
+          queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
+        }
+      )
+      .subscribe();
+
+    // Update stocks every minute
+    const updateInterval = setInterval(async () => {
+      await supabase.functions.invoke('update-stock-prices');
+    }, 60000); // Every minute
+
+    // Initial update
+    supabase.functions.invoke('update-stock-prices');
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(updateInterval);
+    };
+  }, [user?.id]);
 
   // Get the first 5 stocks for the stock cards
   const topStocks = portfolio?.stocks?.slice(0, 5) || [];

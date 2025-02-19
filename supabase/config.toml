@@ -1,1 +1,5 @@
+
 project_id = "pwnjzbluumgokkuiustn"
+
+[functions.update-stock-prices]
+verify_jwt = false
