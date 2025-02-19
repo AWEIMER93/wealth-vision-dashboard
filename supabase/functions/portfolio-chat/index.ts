@@ -1,4 +1,3 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4';
@@ -61,7 +60,9 @@ serve(async (req) => {
 
     // Handle PIN verification and pending trade
     if (pin && pendingTrade) {
-      if (pin !== "1234") {
+      console.log('Processing trade with PIN:', { pin, pendingTrade });
+      
+      if (pin !== PIN) {
         return new Response(
           JSON.stringify({ 
             reply: "Incorrect PIN. Please try again.",
@@ -80,6 +81,8 @@ serve(async (req) => {
         .single();
       
       if (portfolioError) throw portfolioError;
+      
+      console.log('Found portfolio:', portfolio);
 
       // Get stock details
       const { data: stock, error: stockError } = await supabase
@@ -87,7 +90,7 @@ serve(async (req) => {
         .select('*')
         .eq('symbol', pendingTrade.symbol)
         .eq('portfolio_id', portfolio.id)
-        .single();
+        .maybeSingle();
 
       const currentPrice = stock?.current_price || 100; // Mock price if stock doesn't exist
       const totalAmount = currentPrice * pendingTrade.units;
@@ -102,6 +105,7 @@ serve(async (req) => {
       }
 
       // Execute trade
+      console.log('Executing trade transaction');
       const { data: transaction, error: transactionError } = await supabase
         .from('transactions')
         .insert([{
@@ -115,33 +119,77 @@ serve(async (req) => {
         .select()
         .single();
 
-      if (transactionError) throw transactionError;
+      if (transactionError) {
+        console.error('Transaction error:', transactionError);
+        throw transactionError;
+      }
+      
+      console.log('Transaction created:', transaction);
 
-      // Update stock units
-      const newUnits = pendingTrade.type === 'BUY' 
-        ? (stock?.units || 0) + pendingTrade.units
-        : stock.units - pendingTrade.units;
-
+      // Update or create stock
       if (stock) {
-        await supabase
+        console.log('Updating existing stock');
+        const newUnits = pendingTrade.type === 'BUY' 
+          ? stock.units + pendingTrade.units
+          : stock.units - pendingTrade.units;
+
+        const { error: updateError } = await supabase
           .from('stocks')
-          .update({ units: newUnits })
+          .update({ 
+            units: newUnits,
+            updated_at: new Date().toISOString()
+          })
           .eq('id', stock.id);
+
+        if (updateError) {
+          console.error('Stock update error:', updateError);
+          throw updateError;
+        }
       } else if (pendingTrade.type === 'BUY') {
-        await supabase
+        console.log('Creating new stock');
+        const { error: insertError } = await supabase
           .from('stocks')
           .insert([{
             portfolio_id: portfolio.id,
             symbol: pendingTrade.symbol,
             name: pendingTrade.symbol,
             units: pendingTrade.units,
-            current_price: currentPrice
+            current_price: currentPrice,
+            updated_at: new Date().toISOString()
           }]);
+
+        if (insertError) {
+          console.error('Stock insert error:', insertError);
+          throw insertError;
+        }
+      }
+
+      // Update portfolio totals
+      console.log('Updating portfolio totals');
+      const { data: updatedStocks } = await supabase
+        .from('stocks')
+        .select('*')
+        .eq('portfolio_id', portfolio.id);
+
+      const totalHolding = updatedStocks?.reduce((sum, stock) => 
+        sum + (stock.current_price || 0) * stock.units, 0) || 0;
+
+      const { error: portfolioUpdateError } = await supabase
+        .from('portfolios')
+        .update({
+          total_holding: totalHolding,
+          active_stocks: updatedStocks?.length || 0,
+        })
+        .eq('id', portfolio.id);
+
+      if (portfolioUpdateError) {
+        console.error('Portfolio update error:', portfolioUpdateError);
+        throw portfolioUpdateError;
       }
 
       return new Response(
         JSON.stringify({ 
-          reply: `Trade executed successfully: ${pendingTrade.type.toLowerCase()}ed ${pendingTrade.units} shares of ${pendingTrade.symbol} at $${currentPrice} per share. Total amount: $${totalAmount}`
+          reply: `Trade executed successfully: ${pendingTrade.type.toLowerCase()}ed ${pendingTrade.units} shares of ${pendingTrade.symbol} at $${currentPrice} per share.\nTotal amount: $${totalAmount}`
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -242,7 +290,7 @@ Guidelines:
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error in portfolio-chat:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
       { 
