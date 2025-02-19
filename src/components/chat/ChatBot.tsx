@@ -42,7 +42,6 @@ export const ChatBot = () => {
   useEffect(() => {
     if (!user?.id) return;
 
-    // Subscribe to stock changes
     const stockChannel = supabase
       .channel('stock-changes')
       .on(
@@ -59,7 +58,6 @@ export const ChatBot = () => {
       )
       .subscribe();
 
-    // Subscribe to transaction changes
     const transactionChannel = supabase
       .channel('transaction-changes')
       .on(
@@ -73,12 +71,11 @@ export const ChatBot = () => {
           console.log('Transaction:', payload);
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
           
-          // Show toast for new transactions
           if (payload.eventType === 'INSERT') {
-            const { type, units, price_per_unit, total_amount } = payload.new;
+            const { type, units, symbol, price_per_unit, total_amount } = payload.new;
             toast({
               title: `Trade Executed`,
-              description: `Successfully ${type.toLowerCase()}ed ${units} shares at $${price_per_unit} per share. Total: $${total_amount}`,
+              description: `Successfully ${type.toLowerCase()}ed ${units} shares of ${symbol} at $${price_per_unit} per share. Total: $${total_amount}`,
               variant: "default",
             });
           }
@@ -103,19 +100,23 @@ export const ChatBot = () => {
         payload.tradeCommand = pendingTrade;
       }
 
+      // Call the portfolio-chat function
       const { data, error } = await supabase.functions.invoke('portfolio-chat', {
-        body: payload,
+        body: JSON.stringify(payload),
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Chat error:', error);
+        throw error;
+      }
 
+      // Add the assistant's response to the messages
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
       
       if (data.awaitingPin) {
         setAwaitingPin(true);
         setPendingTrade(data.tradeCommand);
         
-        // Show a toast to inform the user about PIN verification
         toast({
           title: "PIN Verification Required",
           description: "Please enter your PIN to confirm the trade",
@@ -126,11 +127,11 @@ export const ChatBot = () => {
         setPendingTrade(null);
       }
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Chat error:', error);
       toast({
         title: "Error",
-        description: "Failed to get response. Please try again.",
+        description: error.message || "Failed to get response. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -156,7 +157,6 @@ export const ChatBot = () => {
             </Button>
           </CardHeader>
           
-          {/* Quick Actions */}
           <div className="p-4 border-b border-white/10">
             <div className="grid grid-cols-2 gap-2">
               {QUICK_ACTIONS.map((action) => (
