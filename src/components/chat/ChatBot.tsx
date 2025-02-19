@@ -94,15 +94,16 @@ export const ChatBot = () => {
       setIsLoading(true);
       setMessages(prev => [...prev, { role: 'user', content: message }]);
 
-      const payload: any = { message };
-      if (awaitingPin) {
-        payload.pin = message;
-        payload.tradeCommand = pendingTrade;
-      }
+      const payload = {
+        message,
+        ...(awaitingPin && pendingTrade ? {
+          pin: message,
+          tradeCommand: pendingTrade
+        } : {})
+      };
 
-      // Call the portfolio-chat function
       const { data, error } = await supabase.functions.invoke('portfolio-chat', {
-        body: JSON.stringify(payload),
+        body: payload,
       });
 
       if (error) {
@@ -110,7 +111,10 @@ export const ChatBot = () => {
         throw error;
       }
 
-      // Add the assistant's response to the messages
+      if (!data) {
+        throw new Error('No response data received');
+      }
+
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
       
       if (data.awaitingPin) {
@@ -126,7 +130,6 @@ export const ChatBot = () => {
         setAwaitingPin(false);
         setPendingTrade(null);
       }
-      
     } catch (error: any) {
       console.error('Chat error:', error);
       toast({

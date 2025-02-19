@@ -5,16 +5,18 @@ import { useToast } from '@/hooks/use-toast';
 import { RealtimeChat } from '@/utils/RealtimeAudio';
 import { Mic, MicOff } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/providers/AuthProvider';
 
 interface VoiceInterfaceProps {
   onSpeakingChange: (speaking: boolean) => void;
 }
 
-const VOICE_ID = "M7ya1YbaeFaPXljg9BpK"; // Updated voice ID
+const VOICE_ID = "M7ya1YbaeFaPXljg9BpK"; // Custom voice ID
 const MODEL_ID = "eleven_monolingual_v1";
 
 const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const chatRef = useRef<RealtimeChat | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -67,6 +69,11 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
       chatRef.current = new RealtimeChat(handleMessage);
       await chatRef.current.init();
       setIsConnected(true);
+      
+      // Play greeting message with user's name
+      const userName = user?.email?.split('@')[0] || 'there';
+      const greetingMessage = `Hello ${userName}! How are you today? What can I help you with regarding your portfolio?`;
+      await playAudioResponse(greetingMessage);
       
       toast({
         title: "Voice Assistant Ready",
