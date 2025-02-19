@@ -6,7 +6,6 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useStockWebSocket } from '@/hooks/useStockWebSocket';
 
 const Dashboard = () => {
   const { user, signOut } = useAuth();
@@ -26,10 +25,6 @@ const Dashboard = () => {
     },
     enabled: !!user?.id
   });
-
-  // Get list of stock symbols from portfolio
-  const symbols = portfolio?.stocks?.map(stock => stock.symbol) || [];
-  const { stockUpdates, isConnected } = useStockWebSocket(symbols);
 
   const handleSignOut = async () => {
     await signOut();
@@ -51,20 +46,11 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background p-4">
       <header className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-2xl font-bold">Welcome, {user.name}</h1>
-          <p className="text-sm text-muted-foreground">
-            {isConnected ? 
-              <span className="text-green-500">Live updates connected</span> : 
-              <span className="text-yellow-500">Connecting to live updates...</span>
-            }
-          </p>
-        </div>
+        <h1 className="text-2xl font-bold">Welcome, {user.name}</h1>
         <Button variant="outline" onClick={handleSignOut}>
           Sign out
         </Button>
       </header>
-      
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {/* Portfolio Overview Card */}
         <Card>
@@ -126,25 +112,17 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="grid gap-4">
-              {portfolio.stocks.map((stock) => {
-                const liveData = stockUpdates[stock.symbol];
-                return (
-                  <div key={stock.id} className="flex justify-between items-center p-4 bg-muted rounded-lg">
-                    <div>
-                      <h3 className="font-semibold">{stock.name}</h3>
-                      <p className="text-sm text-muted-foreground">{stock.symbol}</p>
-                    </div>
-                    <div className="text-right space-y-1">
-                      <p className="font-medium">{stock.units} units</p>
-                      {liveData && (
-                        <p className="text-sm font-medium">
-                          Current: ${liveData.currentPrice.toFixed(2)}
-                        </p>
-                      )}
-                    </div>
+              {portfolio.stocks.map((stock) => (
+                <div key={stock.id} className="flex justify-between items-center p-4 bg-muted rounded-lg">
+                  <div>
+                    <h3 className="font-semibold">{stock.name}</h3>
+                    <p className="text-sm text-muted-foreground">{stock.symbol}</p>
                   </div>
-                );
-              })}
+                  <div className="text-right">
+                    <p className="font-medium">{stock.units} units</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
