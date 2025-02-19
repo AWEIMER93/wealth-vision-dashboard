@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -9,22 +8,45 @@ interface Message {
   content: string;
 }
 
+interface ConversationContext {
+  selectedSector?: string;
+  awaitingRisk?: boolean;
+}
+
 // Helper function to format currency
 const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   }).format(amount);
+};
+
+// Helper function to format percentages
+const formatPercent = (value: number): string => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'percent',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value / 100);
+};
+
+// Helper function to format large numbers with commas
+const formatNumber = (num: number): string => {
+  return new Intl.NumberFormat('en-US').format(num);
 };
 
 export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [context, setContext] = useState<ConversationContext>({});
   const { toast } = useToast();
   const { user } = useAuth();
 
   const clearMessages = () => {
     setMessages([]);
+    setContext({});
   };
 
   const processTradeConfirmation = async (message: string) => {
@@ -176,6 +198,34 @@ export const useChat = () => {
     return null;
   };
 
+  const formatResponse = (text: string): string => {
+    // Format currency values ($X.XX or $X)
+    text = text.replace(
+      /\$\d+(?:,\d{3})*(?:\.\d{2})?/g,
+      match => {
+        const number = parseFloat(match.replace(/[$,]/g, ''));
+        return formatCurrency(number);
+      }
+    );
+
+    // Format percentage values (X% or X.XX%)
+    text = text.replace(
+      /(?:\+|-)?\d+(?:\.\d{1,2})?%/g,
+      match => {
+        const number = parseFloat(match.replace(/%/g, ''));
+        return formatPercent(number);
+      }
+    );
+
+    // Format large numbers with commas
+    text = text.replace(
+      /(?<![.$])\b\d{4,}\b(?!\s*%)/g,
+      match => formatNumber(parseInt(match))
+    );
+
+    return text;
+  };
+
   const sendMessage = async (content: string) => {
     try {
       if (!user) {
@@ -190,7 +240,7 @@ export const useChat = () => {
         setMessages(prev => [
           ...prev,
           { role: 'user', content: '****' }, // Mask PIN
-          { role: 'assistant', content: tradeConfirmation }
+          { role: 'assistant', content: formatResponse(tradeConfirmation) }
         ]);
         return;
       }
@@ -202,20 +252,31 @@ export const useChat = () => {
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
           message: content,
-          userId: user.id
+          userId: user.id,
+          context: {
+            ...context,
+            previousMessages: messages.slice(-2) // Send last 2 messages for context
+          }
         },
       });
 
       if (error) throw error;
 
-      // Format any numbers in the response
       let formattedReply = data.reply || "I'm sorry, I couldn't process that request.";
       
-      // Format currency values in the response
-      formattedReply = formattedReply.replace(
-        /\$(\d+(?:\.\d{2})?)/g,
-        (match, number) => formatCurrency(parseFloat(number))
-      );
+      // Apply comprehensive formatting to the response
+      formattedReply = formatResponse(formattedReply);
+
+      // Update context based on the conversation
+      if (formattedReply.toLowerCase().includes("risk tolerance")) {
+        setContext(prev => ({
+          ...prev,
+          awaitingRisk: true
+        }));
+      } else {
+        // Reset context after getting recommendations
+        setContext({});
+      }
 
       // Add assistant's response to chat
       setMessages(prev => [...prev, { 
