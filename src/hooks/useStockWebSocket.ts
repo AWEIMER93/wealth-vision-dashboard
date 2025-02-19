@@ -27,56 +27,44 @@ export const useStockWebSocket = (symbols: string[]) => {
     
     const fetchStockData = async () => {
       try {
-        // Get API key from Supabase secrets using raw query to bypass type issues
-        const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+        // Get the secret key from Supabase
+        const { data: secretData } = await supabase
+          .from('secrets')
+          .select('value')
+          .eq('name', 'FINNHUB_API_KEY')
+          .single();
 
-        // Perform a raw query to get the secret
-        const secretResponse = await fetch(
-          `${supabase.auth.admin.getURL()}/rest/v1/rpc/get_secret`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${data?.currentLevel}`,
-              'apikey': supabase.auth.admin.getAuth()
-            },
-            body: JSON.stringify({ name: 'FINNHUB_API_KEY' })
-          }
-        );
-
-        const secretData = await secretResponse.json();
-
-        if (!secretData || error) {
-          console.error('Failed to get API key:', error);
+        if (!secretData) {
+          console.error('Failed to get API key');
           return;
         }
 
-        // Configure Finnhub client using the provided pattern
+        // Configure Finnhub client using the REST API pattern
         const api_key = finnhub.ApiClient.instance.authentications['api_key'];
-        api_key.apiKey = secretData;
+        api_key.apiKey = secretData.value;
         const finnhubClient = new finnhub.DefaultApi();
 
         // Function to fetch data for a single symbol
         const fetchSymbol = async (symbol: string) => {
-          try {
-            const data = await new Promise<FinnhubQuoteResponse>((resolve, reject) => {
-              finnhubClient.quote(symbol, (error, data, response) => {
-                if (error) reject(error);
-                else resolve(data as FinnhubQuoteResponse);
-              });
-            });
-
-            setStockUpdates(prev => ({
-              ...prev,
-              [symbol]: {
-                symbol,
-                currentPrice: data.c,
-                timestamp: new Date(),
+          return new Promise<void>((resolve, reject) => {
+            finnhubClient.quote(symbol, (error, data, response) => {
+              if (error) {
+                console.error(`Error fetching data for ${symbol}:`, error);
+                reject(error);
+                return;
               }
-            }));
-          } catch (error) {
-            console.error(`Error fetching data for ${symbol}:`, error);
-          }
+
+              setStockUpdates(prev => ({
+                ...prev,
+                [symbol]: {
+                  symbol,
+                  currentPrice: data.c,
+                  timestamp: new Date(),
+                }
+              }));
+              resolve();
+            });
+          });
         };
 
         // Fetch data for all symbols
