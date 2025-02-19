@@ -51,9 +51,10 @@ export const useStockWebSocket = (symbols: string[]) => {
           return;
         }
 
-        // Configure Finnhub client
+        // Configure Finnhub client using the provided pattern
+        const api_key = finnhub.ApiClient.instance.authentications['api_key'];
+        api_key.apiKey = secretData;
         const finnhubClient = new finnhub.DefaultApi();
-        finnhubClient.setApiKey(secretData);
 
         // Function to fetch data for a single symbol
         const fetchSymbol = async (symbol: string) => {
