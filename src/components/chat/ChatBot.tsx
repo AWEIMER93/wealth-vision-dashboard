@@ -1,169 +1,28 @@
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { MessageCircle, X, LineChart, Wallet, TrendingUp, AlertCircle, DollarSign } from "lucide-react";
+import { MessageCircle, X } from "lucide-react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
-import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
+import { QuickActions } from "./QuickActions";
+import { useChat } from "@/hooks/use-chat";
 import { useAuth } from "@/providers/AuthProvider";
-import { useQueryClient } from "@tanstack/react-query";
-
-interface Message {
-  role: 'assistant' | 'user';
-  content: string;
-}
-
-interface TradeCommand {
-  type: 'BUY' | 'SELL';
-  units: number;
-  symbol: string;
-}
-
-const QUICK_ACTIONS = [
-  { icon: Wallet, label: "Portfolio Summary", query: "Give me a quick summary of my portfolio performance" },
-  { icon: TrendingUp, label: "Best Performers", query: "What are my best performing stocks?" },
-  { icon: LineChart, label: "Market Analysis", query: "How is the market affecting my portfolio?" },
-  { icon: AlertCircle, label: "Risk Assessment", query: "What's my portfolio risk level?" },
-  { icon: DollarSign, label: "Execute Trade", query: "I'd like to make a trade" },
-];
+import { useRealtimeUpdates } from "@/hooks/use-realtime-updates";
 
 export const ChatBot = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [awaitingPin, setAwaitingPin] = useState(false);
-  const [pendingTrade, setPendingTrade] = useState<TradeCommand | null>(null);
-  const { toast } = useToast();
   const { user } = useAuth();
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const stockChannel = supabase
-      .channel('stock-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'stocks'
-        },
-        (payload) => {
-          console.log('Stock change:', payload);
-          queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
-        }
-      )
-      .subscribe();
-
-    const transactionChannel = supabase
-      .channel('transaction-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'transactions'
-        },
-        (payload) => {
-          console.log('Transaction:', payload);
-          queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
-          
-          if (payload.eventType === 'INSERT') {
-            const { type, units, symbol, price_per_unit, total_amount } = payload.new;
-            toast({
-              title: `Trade Executed`,
-              description: `Successfully ${type.toLowerCase()}ed ${units} shares of ${symbol} at $${price_per_unit} per share. Total: $${total_amount}`,
-              variant: "default",
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(stockChannel);
-      supabase.removeChannel(transactionChannel);
-    };
-  }, [user?.id, queryClient, toast]);
-
-  const handleSendMessage = async (message: string) => {
-    if (!user) {
-      toast({
-        title: "Authentication Required",
-        description: "Please log in to use the chat feature.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      setMessages(prev => [...prev, { role: 'user', content: message }]);
-
-      // Get the session token
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
-        throw new Error('Authentication required');
-      }
-
-      const body = awaitingPin && pendingTrade 
-        ? { message, pin: message, tradeCommand: pendingTrade }
-        : { message };
-
-      const { data, error } = await supabase.functions.invoke('portfolio-chat', {
-        body,
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (error) {
-        console.error('Chat error:', error);
-        throw error;
-      }
-
-      if (!data?.reply) {
-        throw new Error('Invalid response format');
-      }
-
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
-      
-      if (data.awaitingPin) {
-        setAwaitingPin(true);
-        setPendingTrade(data.tradeCommand);
-        
-        toast({
-          title: "PIN Verification Required",
-          description: "Please enter your PIN to confirm the trade",
-          variant: "default",
-        });
-      } else {
-        setAwaitingPin(false);
-        setPendingTrade(null);
-      }
-    } catch (error: any) {
-      console.error('Chat error:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to get response. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const { messages, isLoading, awaitingPin, handleSendMessage } = useChat();
+  
+  useRealtimeUpdates(user?.id);
 
   // Don't render the chat bot if user is not authenticated
   if (!user) {
     return null;
   }
 
-  const userName = user?.email?.split('@')[0] || 'there';
+  const userName = user.email?.split('@')[0] || 'there';
   
   return (
     <div className="fixed bottom-4 right-4 z-50">
@@ -182,20 +41,7 @@ export const ChatBot = () => {
           </CardHeader>
           
           <div className="p-4 border-b border-white/10">
-            <div className="grid grid-cols-2 gap-2">
-              {QUICK_ACTIONS.map((action) => (
-                <Button
-                  key={action.label}
-                  variant="outline"
-                  className="flex items-center gap-2 h-auto py-3 border-white/10 hover:bg-white/5 text-white"
-                  onClick={() => handleSendMessage(action.query)}
-                  disabled={isLoading}
-                >
-                  <action.icon className="h-4 w-4" />
-                  <span className="text-sm">{action.label}</span>
-                </Button>
-              ))}
-            </div>
+            <QuickActions onAction={handleSendMessage} disabled={isLoading} />
           </div>
 
           <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
