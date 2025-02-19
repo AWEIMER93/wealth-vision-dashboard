@@ -1,3 +1,4 @@
+
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -15,10 +16,10 @@ import {
   Car, 
   Monitor,
   Globe2, 
-  Cpu
+  Cpu,
+  MonitorSmartphone
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Apple, Tesla, Microsoft, Globe2, MonitorSmartphone } from 'lucide-react';
 
 const Dashboard = () => {
   const { user, signOut } = useAuth();
