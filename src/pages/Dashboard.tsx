@@ -1,3 +1,4 @@
+
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -105,7 +106,7 @@ const Dashboard = () => {
         if (createError) throw createError;
         return {
           ...newPortfolio,
-          stocks: []  // Ensure stocks is an empty array rather than null
+          stocks: []
         };
       }
 
@@ -128,7 +129,7 @@ const Dashboard = () => {
       
       return {
         ...data,
-        stocks: data.stocks || [], // Ensure stocks is never null
+        stocks: data.stocks || [],
         total_holding: totalHolding,
         active_stocks: activeStocks,
       };
@@ -136,25 +137,38 @@ const Dashboard = () => {
     enabled: !!user?.id
   });
 
-  const handleSignOut = async () => {
-    await signOut();
-    navigate('/login');
-  };
-
   // Subscribe to real-time updates
   useEffect(() => {
     if (!user?.id) return;
 
-    const channel = supabase
+    // Subscribe to portfolio changes
+    const portfolioChannel = supabase
+      .channel('portfolio-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'portfolios',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
+        }
+      )
+      .subscribe();
+
+    // Subscribe to stock changes
+    const stockChannel = supabase
       .channel('stock-updates')
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
           schema: 'public',
           table: 'stocks'
         },
-        (payload) => {
+        () => {
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
         }
       )
@@ -181,7 +195,8 @@ const Dashboard = () => {
     supabase.functions.invoke('update-stock-prices');
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(portfolioChannel);
+      supabase.removeChannel(stockChannel);
       clearInterval(updateInterval);
     };
   }, [user?.id, queryClient, toast]);
