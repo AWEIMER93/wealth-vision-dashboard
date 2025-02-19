@@ -69,31 +69,58 @@ export class RealtimeChat {
   public voiceId: string | null = null;
   public elevenLabsKey: string | null = null;
   private portfolioChannel: any = null;
+  private retryCount = 0;
+  private maxRetries = 3;
 
   constructor(private onMessage: (message: any) => void) {
     this.audioEl = document.createElement("audio");
     this.audioEl.autoplay = true;
   }
 
-  async init() {
+  private async initWithRetry(): Promise<any> {
     try {
-      // Get ephemeral token from our Supabase Edge Function
+      console.log(`Attempting to get token (attempt ${this.retryCount + 1})`);
+      
       const response = await supabase.functions.invoke("realtime-chat", {
         headers: {
           Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
         }
       });
-      const data = await response.data;
-      
-      if (!data?.client_secret?.value) {
-        throw new Error("Failed to get ephemeral token");
+
+      if (response.error) {
+        throw new Error(`Supabase function error: ${response.error.message}`);
       }
 
+      if (!response.data?.client_secret?.value) {
+        throw new Error("Invalid response format from edge function");
+      }
+
+      return response.data;
+    } catch (error) {
+      console.error(`Token fetch attempt ${this.retryCount + 1} failed:`, error);
+      
+      if (this.retryCount < this.maxRetries - 1) {
+        this.retryCount++;
+        const delay = Math.pow(2, this.retryCount - 1) * 1000;
+        console.log(`Waiting ${delay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.initWithRetry();
+      }
+      
+      throw error;
+    }
+  }
+
+  async init() {
+    try {
+      const data = await this.initWithRetry();
+      
       // Store voice settings
       this.voiceId = data.voice_id;
       this.elevenLabsKey = data.eleven_labs_key;
 
       const EPHEMERAL_KEY = data.client_secret.value;
+      console.log('Successfully obtained ephemeral token');
 
       // Create peer connection
       this.pc = new RTCPeerConnection();
@@ -139,9 +166,20 @@ export class RealtimeChat {
       };
       
       await this.pc.setRemoteDescription(answer);
-      console.log("WebRTC connection established");
+      console.log("WebRTC connection established successfully");
 
-      // Subscribe to real-time portfolio updates
+      // Start recording
+      this.recorder = new AudioRecorder((audioData) => {
+        if (this.dc?.readyState === 'open') {
+          this.dc.send(JSON.stringify({
+            type: 'input_audio_buffer.append',
+            audio: this.encodeAudioData(audioData)
+          }));
+        }
+      });
+      await this.recorder.start();
+
+      // Set up portfolio updates subscription
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         this.portfolioChannel = supabase
@@ -156,23 +194,11 @@ export class RealtimeChat {
             },
             (payload) => {
               console.log('Portfolio updated:', payload);
-              // Fetch updated portfolio data
               this.sendMessage("My portfolio has been updated. Please get the latest data.");
             }
           )
           .subscribe();
       }
-
-      // Start recording
-      this.recorder = new AudioRecorder((audioData) => {
-        if (this.dc?.readyState === 'open') {
-          this.dc.send(JSON.stringify({
-            type: 'input_audio_buffer.append',
-            audio: this.encodeAudioData(audioData)
-          }));
-        }
-      });
-      await this.recorder.start();
 
     } catch (error) {
       console.error("Error initializing chat:", error);

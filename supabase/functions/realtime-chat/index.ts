@@ -8,6 +8,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -17,8 +19,14 @@ serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     const ELEVEN_LABS_API_KEY = Deno.env.get('ELEVEN_LABS_API_KEY');
     
-    if (!OPENAI_API_KEY || !ELEVEN_LABS_API_KEY) {
-      throw new Error('Required API keys not set');
+    if (!OPENAI_API_KEY) {
+      console.error('OpenAI API key not set');
+      throw new Error('OpenAI API key not set');
+    }
+    
+    if (!ELEVEN_LABS_API_KEY) {
+      console.error('ElevenLabs API key not set');
+      throw new Error('ElevenLabs API key not set');
     }
 
     // Get user data from request
@@ -32,46 +40,25 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get user's JWT token
+    // Get user's JWT token and verify
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: userError } = await supabase.auth.getUser(token);
     
     if (userError || !user) {
+      console.error('User verification failed:', userError);
       throw new Error('Invalid user token');
     }
 
-    // Fetch user's portfolio data
-    const { data: portfolio, error: portfolioError } = await supabase
-      .from('portfolios')
-      .select(`
-        *,
-        stocks (*)
-      `)
-      .eq('user_id', user.id)
-      .single();
+    console.log('User verified:', user.id);
 
-    if (portfolioError) {
-      throw portfolioError;
-    }
+    // Request an ephemeral token from OpenAI with enhanced retry logic
+    let lastError = null;
+    let openAIData = null;
 
-    // Format portfolio data for the AI
-    const portfolioContext = portfolio ? {
-      total_holding: portfolio.total_holding,
-      total_profit: portfolio.total_profit,
-      active_stocks: portfolio.active_stocks,
-      stocks: portfolio.stocks.map((stock: any) => ({
-        symbol: stock.symbol,
-        name: stock.name,
-        shares: stock.shares,
-        current_price: stock.current_price,
-        price_change: stock.price_change,
-      }))
-    } : null;
-
-    // Request an ephemeral token from OpenAI with retries
-    let openAIData;
-    for (let i = 0; i < 3; i++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
+        console.log(`Attempting to get OpenAI token (attempt ${attempt})`);
+        
         const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
           method: "POST",
           headers: {
@@ -81,35 +68,40 @@ serve(async (req) => {
           body: JSON.stringify({
             model: "gpt-4o-realtime-preview-2024-12-17",
             voice: null,
-            instructions: `You are a highly knowledgeable and conversational portfolio advisor. 
-              Here is the user's current portfolio data: ${JSON.stringify(portfolioContext)}.
-              Use this data to provide personalized advice and real-time insights.
-              You help users manage their investments by providing real-time advice, executing trades, 
-              and offering insights about market conditions. Always be professional but friendly, 
-              and make sure to confirm important actions like trades before executing them. 
-              If a user wants to execute a trade, always ask for confirmation and use a PIN for security.
-              After confirming a trade, always mention that it may take 1-2 minutes for the changes to reflect in their account.
-              When discussing numerical values, always format them appropriately (e.g., $1,234.56 for currency, 12.34% for percentages).
-              Remember to reference their actual holdings when discussing their portfolio.`
+            instructions: "You are a knowledgeable portfolio advisor providing real-time investment advice."
           }),
         });
 
         if (!response.ok) {
-          throw new Error(`Failed to get token: ${response.status}`);
+          const errorText = await response.text();
+          console.error(`OpenAI API error (${response.status}):`, errorText);
+          throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
         }
 
         openAIData = await response.json();
-        console.log("Session created successfully:", openAIData);
+        
+        if (!openAIData?.client_secret?.value) {
+          throw new Error('Invalid response format from OpenAI');
+        }
+
+        console.log('Successfully obtained OpenAI token');
         break;
       } catch (error) {
-        console.error(`Attempt ${i + 1} failed:`, error);
-        if (i === 2) throw error;
-        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+        console.error(`Attempt ${attempt} failed:`, error);
+        lastError = error;
+        
+        if (attempt < 3) {
+          const backoffDelay = Math.pow(2, attempt - 1) * 1000; // Exponential backoff
+          console.log(`Waiting ${backoffDelay}ms before retry...`);
+          await delay(backoffDelay);
+        }
       }
     }
 
     if (!openAIData?.client_secret?.value) {
-      throw new Error('Failed to get valid token from OpenAI');
+      const errorMsg = lastError ? `Failed to get OpenAI token after 3 attempts: ${lastError.message}` : 'Failed to get OpenAI token';
+      console.error(errorMsg);
+      throw new Error(errorMsg);
     }
 
     // Add ElevenLabs voice ID to response
@@ -123,10 +115,11 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Error in realtime-chat function:", error);
     return new Response(JSON.stringify({ 
       error: error.message,
-      details: error.stack
+      details: error.stack,
+      time: new Date().toISOString()
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
