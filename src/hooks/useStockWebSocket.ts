@@ -1,13 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-
-interface Trade {
-  p: number;  // Last price
-  s: string;  // Symbol
-  t: number;  // Timestamp
-  v: number;  // Volume
-}
+import finnhub from 'finnhub';
 
 interface StockUpdate {
   symbol: string;
@@ -20,69 +14,72 @@ export const useStockWebSocket = (symbols: string[]) => {
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    let ws: WebSocket;
-
-    const connectWebSocket = async () => {
+    let interval: NodeJS.Timeout;
+    
+    const fetchStockData = async () => {
       try {
-        // Get the API key from Supabase
-        const { data: { value: apiKey }, error } = await supabase
-          .from('secrets')
-          .select('value')
+        // Get API key from Supabase
+        const { data: secrets, error } = await supabase
+          .from('portfolios')
+          .select('*')
           .eq('name', 'FINNHUB_API_KEY')
           .single();
 
-        if (error) throw error;
+        if (error || !secrets?.value) {
+          console.error('Failed to get API key:', error);
+          return;
+        }
 
-        // Create WebSocket connection
-        ws = new WebSocket(`wss://ws.finnhub.io?token=${apiKey}`);
+        // Configure Finnhub client
+        const finnhubClient = new finnhub.DefaultApi();
+        finnhubClient.setApiKey(secrets.value);
 
-        ws.onopen = () => {
-          setIsConnected(true);
-          // Subscribe to symbols
-          symbols.forEach(symbol => {
-            ws.send(JSON.stringify({ type: 'subscribe', symbol: symbol }));
-          });
-        };
+        // Function to fetch data for a single symbol
+        const fetchSymbol = async (symbol: string) => {
+          try {
+            const data = await new Promise((resolve, reject) => {
+              finnhubClient.quote(symbol, (error, data, response) => {
+                if (error) reject(error);
+                else resolve(data);
+              });
+            });
 
-        ws.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          if (data.type === 'trade') {
-            data.data.forEach((trade: Trade) => {
+            if (data) {
               setStockUpdates(prev => ({
                 ...prev,
-                [trade.s]: {
-                  symbol: trade.s,
-                  currentPrice: trade.p,
-                  timestamp: new Date(trade.t),
+                [symbol]: {
+                  symbol,
+                  currentPrice: data.c,
+                  timestamp: new Date(),
                 }
               }));
-            });
+            }
+          } catch (error) {
+            console.error(`Error fetching data for ${symbol}:`, error);
           }
         };
 
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-        };
+        // Fetch data for all symbols
+        setIsConnected(true);
+        await Promise.all(symbols.map(fetchSymbol));
 
-        ws.onclose = () => {
-          setIsConnected(false);
-          // Attempt to reconnect after a delay
-          setTimeout(connectWebSocket, 5000);
-        };
       } catch (error) {
-        console.error('Failed to connect to WebSocket:', error);
+        console.error('Failed to fetch stock data:', error);
+        setIsConnected(false);
       }
     };
 
-    connectWebSocket();
+    // Initial fetch
+    fetchStockData();
+
+    // Set up polling interval (every 10 seconds)
+    interval = setInterval(fetchStockData, 10000);
 
     return () => {
-      if (ws) {
-        symbols.forEach(symbol => {
-          ws.send(JSON.stringify({ type: 'unsubscribe', symbol: symbol }));
-        });
-        ws.close();
+      if (interval) {
+        clearInterval(interval);
       }
+      setIsConnected(false);
     };
   }, [symbols]);
 
