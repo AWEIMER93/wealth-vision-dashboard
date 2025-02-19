@@ -165,7 +165,7 @@ export const useChat = () => {
             const formattedPrice = formatCurrency(stock.current_price);
             const formattedTotal = formatCurrency(tradeAmount);
             
-            return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at ${formattedPrice} per share. Total amount: ${formattedTotal}`;
+            return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at ${formattedPrice} per share. Total amount: ${formattedTotal}. Please allow up to 1 minute for your portfolio balances and individual stock holdings to be updated.`;
           } catch (error: any) {
             console.error('Trade error:', error);
             throw new Error(`Failed to execute trade: ${error.message}`);
