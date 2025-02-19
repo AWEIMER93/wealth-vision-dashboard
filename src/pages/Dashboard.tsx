@@ -1,4 +1,3 @@
-
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -22,6 +21,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
+import { ChatBot } from "@/components/chat/ChatBot";
 
 interface Stock {
   id: string;
@@ -429,6 +429,7 @@ const Dashboard = () => {
           </CardContent>
         </Card>
       </div>
+      <ChatBot />
     </div>
   );
 };
