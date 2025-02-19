@@ -125,9 +125,19 @@ const Dashboard = () => {
         };
       }
 
-      // Calculate portfolio totals
+      // Calculate portfolio totals and daily change
       const totalHolding = data.stocks?.reduce((sum, stock) => 
         sum + (stock.current_price || 0) * stock.units, 0) || 0;
+
+      const totalDailyChange = data.stocks?.reduce((change, stock) => {
+        const stockValue = (stock.current_price || 0) * stock.units;
+        const stockDailyChange = (stockValue * (stock.price_change || 0)) / 100;
+        return change + stockDailyChange;
+      }, 0) || 0;
+
+      const totalHoldingPercentChange = totalHolding > 0 
+        ? (totalDailyChange / (totalHolding - totalDailyChange)) * 100 
+        : 0;
 
       const activeStocks = data.stocks?.length || 0;
 
@@ -136,6 +146,7 @@ const Dashboard = () => {
         .from('portfolios')
         .update({
           total_holding: totalHolding,
+          total_profit: totalHoldingPercentChange,
           active_stocks: activeStocks,
         })
         .eq('id', data.id);
@@ -146,6 +157,7 @@ const Dashboard = () => {
         ...data,
         stocks: data.stocks || [],
         total_holding: totalHolding,
+        total_profit: totalHoldingPercentChange,
         active_stocks: activeStocks,
       };
     },
@@ -290,9 +302,7 @@ const Dashboard = () => {
   };
 
   // Calculate total profit percentage
-  const profitPercentage = portfolio?.total_investment && portfolio.total_investment > 0
-    ? ((portfolio.total_holding - portfolio.total_investment) / portfolio.total_investment) * 100
-    : 0;
+  const profitPercentage = portfolio?.total_profit || 0;
 
   return (
     <div className="min-h-screen bg-[#121212] text-white">
@@ -354,10 +364,10 @@ const Dashboard = () => {
                 <p className="text-gray-400 mb-2">Total Holding</p>
                 <div className="flex items-center gap-4">
                   <h2 className="text-4xl font-bold">${portfolio?.total_holding?.toLocaleString() ?? '0.00'}</h2>
-                  <span className={`flex items-center gap-1 ${portfolio?.total_profit && portfolio.total_profit > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {portfolio?.total_profit && portfolio.total_profit > 0 ? '+' : '-'}
-                    {Math.abs(portfolio?.total_profit || 0).toFixed(2)}% 
-                    <ChevronDown className={`h-4 w-4 ${portfolio?.total_profit && portfolio.total_profit > 0 ? 'transform rotate-180' : ''}`} />
+                  <span className={`flex items-center gap-1 ${profitPercentage > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {profitPercentage > 0 ? '+' : ''}
+                    {profitPercentage.toFixed(2)}% 
+                    <ChevronDown className={`h-4 w-4 ${profitPercentage > 0 ? 'transform rotate-180' : ''}`} />
                   </span>
                 </div>
               </div>
