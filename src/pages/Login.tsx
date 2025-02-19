@@ -1,10 +1,10 @@
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import VoiceInterface from "@/components/VoiceInterface";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -12,7 +12,6 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,8 +89,6 @@ const Login = () => {
           </form>
         </div>
       </div>
-      
-      <VoiceInterface onSpeakingChange={setIsAiSpeaking} />
     </div>
   );
 };
