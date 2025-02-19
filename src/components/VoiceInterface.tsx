@@ -21,7 +21,8 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
     
     if (event.type === 'response.text') {
       onSpeakingChange(true);
-      // Use browser's built-in speech synthesis
+      // Cancel any ongoing speech before starting new one
+      speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(event.text);
       utterance.onend = () => onSpeakingChange(false);
       speechSynthesis.speak(utterance);
@@ -34,9 +35,11 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
       await chatRef.current.init();
       setIsConnected(true);
       
-      // Play greeting message with user's name
       const userName = user?.email?.split('@')[0] || 'there';
-      const greetingMessage = `Hello ${userName}! How can I help you with your portfolio today?`;
+      const greetingMessage = `Hi ${userName}, I'm ready to help with your portfolio.`;
+      
+      // Cancel any ongoing speech before starting
+      speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(greetingMessage);
       utterance.onend = () => onSpeakingChange(false);
       onSpeakingChange(true);
@@ -57,7 +60,7 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
   };
 
   const endConversation = () => {
-    speechSynthesis.cancel(); // Stop any ongoing speech
+    speechSynthesis.cancel();
     chatRef.current?.disconnect();
     setIsConnected(false);
     onSpeakingChange(false);

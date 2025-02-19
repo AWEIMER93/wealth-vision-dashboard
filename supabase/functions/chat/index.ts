@@ -18,17 +18,12 @@ const formatCurrency = (amount: number): string => {
   }).format(amount);
 };
 
-// Helper function to format large numbers
-const formatNumber = (num: number): string => {
-  return new Intl.NumberFormat('en-US').format(num);
-};
-
 // Helper function to get market news
 async function getMarketNews() {
   const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
   const response = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_API_KEY}`);
   const data = await response.json();
-  return data.slice(0, 5); // Get latest 5 news items
+  return data.slice(0, 5);
 }
 
 serve(async (req) => {
@@ -47,7 +42,7 @@ serve(async (req) => {
         message.toLowerCase().includes('news') || 
         message.toLowerCase().includes("what's happening in the market")) {
       const news = await getMarketNews();
-      let newsResponse = "Here's the latest market news I found:\n\n";
+      let newsResponse = "Let me share the latest market updates with you:\n\n";
       
       news.forEach((item: any, index: number) => {
         newsResponse += `${index + 1}. ${item.headline}\n`;
@@ -90,7 +85,7 @@ serve(async (req) => {
 
         return new Response(
           JSON.stringify({
-            reply: `I'll help you ${action} ${shares} shares of ${symbol} (${stock.name}). The current market price is ${formattedPrice} per share, which means your total would be ${formattedTotal}. If you'd like to proceed with this trade, please enter your PIN: 1234`
+            reply: `Sure! I'll help you ${action} ${shares} shares of ${symbol} at ${formattedPrice} per share, for a total of ${formattedTotal}.`
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
@@ -113,11 +108,11 @@ serve(async (req) => {
           {
             role: 'system',
             content: `You are a friendly and helpful investment assistant. Keep your responses conversational and natural.
-            Always format numbers properly:
-            - Use commas for thousands (e.g., 1,000)
-            - Format currency with $ and commas (e.g., $1,000.00)
-            - Use % for percentages (e.g., 10.5%)
-            Be concise but friendly. Use natural language and avoid robotic responses.`
+            When formatting numbers:
+            - Use currency format like $1,234.56
+            - Use commas for thousands like 1,234
+            - Show percentages like 12.5%
+            Be concise and friendly, avoid formal language.`
           },
           { role: 'user', content: message }
         ],
