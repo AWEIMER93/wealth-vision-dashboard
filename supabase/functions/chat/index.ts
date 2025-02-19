@@ -39,7 +39,15 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful assistant. Keep your responses concise and friendly.',
+            content: `You are a helpful portfolio management assistant. You help users:
+            1. Understand their portfolio performance
+            2. Make informed investment decisions
+            3. Track market trends
+            4. Execute trades
+            5. Analyze stock metrics
+            
+            Keep responses concise and focused on financial topics. When discussing stocks, 
+            always include relevant metrics like price, market cap, and volume when available.`,
           },
           { role: 'user', content: message },
         ],
