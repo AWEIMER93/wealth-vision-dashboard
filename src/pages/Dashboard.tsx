@@ -1,10 +1,22 @@
-
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Home, LineChart, BarChart2, Users, HelpCircle, ChevronDown } from "lucide-react";
+import { 
+  Loader2, 
+  Home, 
+  LineChart, 
+  BarChart2, 
+  Users, 
+  HelpCircle, 
+  ChevronDown,
+  Apple, 
+  Car, 
+  Monitor,
+  Globe2, 
+  Cpu
+} from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Apple, Tesla, Microsoft, Globe2, MonitorSmartphone } from 'lucide-react';
 
@@ -119,10 +131,10 @@ const Dashboard = () => {
         {/* Stock Cards Grid */}
         <div className="grid grid-cols-5 gap-4 mb-8">
           <StockCard symbol="AAPL" name="Apple" units={104} price={1721.3} change={0.74} Icon={Apple} />
-          <StockCard symbol="TSLA" name="Tesla" units={124} price={1521.3} change={0.74} Icon={Tesla} />
-          <StockCard symbol="MSFT" name="Microsoft" units={10} price={1721.3} change={0.74} Icon={Microsoft} />
+          <StockCard symbol="TSLA" name="Tesla" units={124} price={1521.3} change={0.74} Icon={Car} />
+          <StockCard symbol="MSFT" name="Microsoft" units={10} price={1721.3} change={0.74} Icon={Monitor} />
           <StockCard symbol="GOOG" name="Google" units={110} price={1721.3} change={0.74} Icon={Globe2} />
-          <StockCard symbol="NVDA" name="NVIDIA" units={104} price={1721.3} change={0.74} Icon={MonitorSmartphone} />
+          <StockCard symbol="NVDA" name="NVIDIA" units={104} price={1721.3} change={0.74} Icon={Cpu} />
         </div>
 
         {/* Portfolio Performance Chart */}
@@ -172,10 +184,10 @@ const Dashboard = () => {
                 {portfolio?.stocks?.map((stock) => (
                   <tr key={stock.id} className="border-t border-white/10">
                     <td className="py-4 flex items-center gap-2">
-                      <Tesla className="h-5 w-5" />
+                      <Car className="h-5 w-5" />
                       {stock.symbol}
                     </td>
-                    <td className="py-4">${(stock.current_price ?? 0).toLocaleString()}</td>
+                    <td className="py-4">${stock.units.toLocaleString()}</td>
                     <td className="py-4 text-green-500">+3.4%</td>
                     <td className="py-4">$564.06B</td>
                     <td className="py-4">$3.97B</td>
