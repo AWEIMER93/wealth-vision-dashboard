@@ -27,19 +27,33 @@ export const useStockWebSocket = (symbols: string[]) => {
     
     const fetchStockData = async () => {
       try {
-        // Get API key from Supabase secrets
-        const { data, error } = await supabase.rpc('get_secret', {
-          name: 'FINNHUB_API_KEY'
-        });
+        // Get API key from Supabase secrets using raw query to bypass type issues
+        const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
 
-        if (error) {
+        // Perform a raw query to get the secret
+        const secretResponse = await fetch(
+          `${supabase.auth.admin.getURL()}/rest/v1/rpc/get_secret`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${data?.currentLevel}`,
+              'apikey': supabase.auth.admin.getAuth()
+            },
+            body: JSON.stringify({ name: 'FINNHUB_API_KEY' })
+          }
+        );
+
+        const secretData = await secretResponse.json();
+
+        if (!secretData || error) {
           console.error('Failed to get API key:', error);
           return;
         }
 
         // Configure Finnhub client
         const finnhubClient = new finnhub.DefaultApi();
-        finnhubClient.setApiKey(data);
+        finnhubClient.setApiKey(secretData);
 
         // Function to fetch data for a single symbol
         const fetchSymbol = async (symbol: string) => {
