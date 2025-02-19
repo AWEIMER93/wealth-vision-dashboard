@@ -1,3 +1,4 @@
+
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -146,7 +147,8 @@ const Dashboard = () => {
         active_stocks: activeStocks,
       };
     },
-    enabled: !!user?.id
+    enabled: !!user?.id,
+    refetchInterval: 30000, // Refetch every 30 seconds
   });
 
   // Subscribe to real-time updates
@@ -155,16 +157,17 @@ const Dashboard = () => {
 
     // Subscribe to portfolio changes
     const portfolioChannel = supabase
-      .channel('portfolio-updates')
+      .channel('portfolio-changes')
       .on(
         'postgres_changes',
         {
-          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          event: '*',
           schema: 'public',
           table: 'portfolios',
           filter: `user_id=eq.${user.id}`
         },
-        () => {
+        (payload) => {
+          console.log('Portfolio change:', payload);
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
         }
       )
@@ -172,22 +175,23 @@ const Dashboard = () => {
 
     // Subscribe to stock changes
     const stockChannel = supabase
-      .channel('stock-updates')
+      .channel('stock-changes')
       .on(
         'postgres_changes',
         {
-          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          event: '*',
           schema: 'public',
           table: 'stocks'
         },
-        () => {
+        (payload) => {
+          console.log('Stock change:', payload);
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
         }
       )
       .subscribe();
 
-    // Update stocks every minute
-    const updateInterval = setInterval(async () => {
+    // Initial stock price update
+    const updateStockPrices = async () => {
       try {
         const { error } = await supabase.functions.invoke('update-stock-prices');
         if (error) {
@@ -201,11 +205,13 @@ const Dashboard = () => {
       } catch (err) {
         console.error('Error invoking function:', err);
       }
-    }, 60000); // Every minute
+    };
 
-    // Initial update
-    supabase.functions.invoke('update-stock-prices');
+    // Update stock prices immediately and every minute
+    updateStockPrices();
+    const updateInterval = setInterval(updateStockPrices, 60000);
 
+    // Cleanup function
     return () => {
       supabase.removeChannel(portfolioChannel);
       supabase.removeChannel(stockChannel);
