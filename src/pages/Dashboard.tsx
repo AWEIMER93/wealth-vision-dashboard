@@ -191,6 +191,33 @@ const Dashboard = () => {
       )
       .subscribe();
 
+    // Subscribe to transaction changes
+    const transactionChannel = supabase
+      .channel('transaction-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'transactions'
+        },
+        (payload) => {
+          console.log('Transaction:', payload);
+          queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
+          
+          // Show toast for new transactions
+          if (payload.eventType === 'INSERT') {
+            const { type, units } = payload.new;
+            toast({
+              title: "Trade Executed",
+              description: `Successfully ${type.toLowerCase()}ed ${units} shares`,
+              variant: "default",
+            });
+          }
+        }
+      )
+      .subscribe();
+
     // Initial stock price update
     const updateStockPrices = async () => {
       try {
@@ -216,6 +243,7 @@ const Dashboard = () => {
     return () => {
       supabase.removeChannel(portfolioChannel);
       supabase.removeChannel(stockChannel);
+      supabase.removeChannel(transactionChannel);
       clearInterval(updateInterval);
     };
   }, [user?.id, queryClient, toast]);
