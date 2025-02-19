@@ -7,6 +7,7 @@ import { Loader2, Apple, Car, Monitor, Globe2, Cpu, MonitorSmartphone } from "lu
 import { useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import type { Portfolio } from '@/types/portfolio';
+import { Button } from '@/components/ui/button';
 
 // Import components
 import Sidebar from '@/components/dashboard/Sidebar';
@@ -131,3 +132,96 @@ const Dashboard = () => {
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
         }
       )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [user?.id, queryClient]);
+
+  if (!user) {
+    return <Navigate to="/login" />;
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#121212] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+      </div>
+    );
+  }
+
+  if (error) {
+    toast({
+      title: "Error loading portfolio",
+      description: error.message,
+      variant: "destructive",
+    });
+    return (
+      <div className="min-h-screen bg-[#121212] flex items-center justify-center text-white">
+        <div className="text-center">
+          <p className="text-xl mb-4">Failed to load portfolio</p>
+          <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] })}>
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Stock icons mapping
+  const stockIcons = {
+    AAPL: Apple,
+    TSLA: Car,
+    MSFT: Monitor,
+    GOOG: Globe2,
+    NVDA: Cpu
+  };
+
+  // Get the first 5 stocks for the stock cards
+  const topStocks = portfolio?.stocks?.slice(0, 5) || [];
+
+  // Calculate total profit percentage
+  const profitPercentage = portfolio?.total_investment && portfolio.total_investment > 0
+    ? ((portfolio.total_holding - portfolio.total_investment) / portfolio.total_investment) * 100
+    : 0;
+
+  return (
+    <div className="min-h-screen bg-[#121212] text-white">
+      <Sidebar />
+      <div className="ml-64 p-8">
+        <Header 
+          username={user.email?.split('@')[0] || ''} 
+          onSignOut={handleSignOut} 
+        />
+        <TotalHoldingCard 
+          totalHolding={portfolio?.total_holding || 0} 
+          profitPercentage={profitPercentage} 
+        />
+        <div className="grid grid-cols-5 gap-4 mb-8">
+          {topStocks.map(stock => {
+            const StockIcon = stockIcons[stock.symbol as keyof typeof stockIcons] || MonitorSmartphone;
+            return (
+              <StockCard
+                key={stock.id}
+                symbol={stock.symbol}
+                name={stock.name}
+                units={stock.units}
+                price={stock.current_price || 0}
+                change={stock.price_change || 0}
+                Icon={StockIcon}
+              />
+            );
+          })}
+        </div>
+        <PortfolioPerformanceChart />
+        <PortfolioOverviewTable 
+          stocks={portfolio?.stocks || []} 
+          stockIcons={stockIcons} 
+        />
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;
