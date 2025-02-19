@@ -1,4 +1,3 @@
-
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -104,8 +103,29 @@ const Dashboard = () => {
         if (createError) throw createError;
         return newPortfolio;
       }
+
+      // Calculate portfolio totals
+      const totalHolding = data.stocks?.reduce((sum, stock) => 
+        sum + (stock.current_price || 0) * stock.units, 0) || 0;
+
+      const activeStocks = data.stocks?.length || 0;
+
+      // Update portfolio with calculated values
+      const { error: updateError } = await supabase
+        .from('portfolios')
+        .update({
+          total_holding: totalHolding,
+          active_stocks: activeStocks,
+        })
+        .eq('id', data.id);
+
+      if (updateError) throw updateError;
       
-      return data;
+      return {
+        ...data,
+        total_holding: totalHolding,
+        active_stocks: activeStocks,
+      };
     },
     enabled: !!user?.id
   });
@@ -199,6 +219,11 @@ const Dashboard = () => {
     GOOG: Globe2,
     NVDA: Cpu
   };
+
+  // Calculate total profit percentage
+  const profitPercentage = portfolio?.total_investment && portfolio.total_investment > 0
+    ? ((portfolio.total_holding - portfolio.total_investment) / portfolio.total_investment) * 100
+    : 0;
 
   return (
     <div className="min-h-screen bg-[#121212] text-white">
