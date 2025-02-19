@@ -8,9 +8,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
-
-// Helper functions for formatting
+// Helper function to format currency with commas and decimals
 const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -20,6 +18,7 @@ const formatCurrency = (amount: number): string => {
   }).format(amount);
 };
 
+// Helper function to format percentages
 const formatPercent = (value: number): string => {
   return new Intl.NumberFormat('en-US', {
     style: 'percent',
@@ -28,95 +27,34 @@ const formatPercent = (value: number): string => {
   }).format(value / 100);
 };
 
-// Sector to symbol mappings
-const sectorSymbols: { [key: string]: string[] } = {
-  'technology': ['AAPL', 'MSFT', 'GOOG', 'NVDA', 'AMD'],
-  'electric vehicles': ['TSLA', 'RIVN', 'LCID', 'NIO'],
-  'finance': ['JPM', 'BAC', 'GS', 'MS', 'V'],
-  'healthcare': ['JNJ', 'PFE', 'UNH', 'ABBV', 'MRK'],
-  'retail': ['AMZN', 'WMT', 'TGT', 'COST', 'HD'],
-  'energy': ['XOM', 'CVX', 'COP', 'SLB', 'EOG'],
-  'telecommunications': ['T', 'VZ', 'TMUS', 'CMCSA'],
-  'aerospace': ['BA', 'LMT', 'RTX', 'NOC', 'GD']
-};
+async function getPortfolioAnalysis(userId: string) {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
 
-// Risk levels to P/E ratio ranges
-const riskLevels: { [key: string]: { maxPE: number, description: string } } = {
-  'conservative': { maxPE: 15, description: 'stable, established companies with consistent dividends' },
-  'moderate': { maxPE: 25, description: 'growing companies with reasonable valuations' },
-  'aggressive': { maxPE: 50, description: 'high-growth companies with higher volatility' },
-  'speculative': { maxPE: 100, description: 'emerging companies with high potential but significant risk' }
-};
+  // Get user's portfolio data
+  const { data: portfolio, error: portfolioError } = await supabase
+    .from('portfolios')
+    .select(`
+      *,
+      stocks (*)
+    `)
+    .eq('user_id', userId)
+    .single();
 
-async function getStockRecommendations(sector: string, riskLevel: string) {
-  console.log(`Getting recommendations for sector: ${sector}, risk level: ${riskLevel}`);
+  if (portfolioError) throw portfolioError;
+  if (!portfolio) return null;
+
+  const totalValue = portfolio.total_holding || 0;
+  const totalProfit = portfolio.total_profit || 0;
   
-  if (!FINNHUB_API_KEY) {
-    console.error('Finnhub API key is not set');
-    throw new Error('Finnhub API key is not configured');
-  }
-
-  const symbols = sectorSymbols[sector.toLowerCase()] || [];
-  console.log(`Found symbols for sector: ${symbols.join(', ')}`);
-  
-  const stockData = [];
-
-  for (const symbol of symbols) {
-    try {
-      console.log(`Fetching data for ${symbol}...`);
-      
-      // Get company profile
-      const profileResponse = await fetch(
-        `https://finnhub.io/api/v1/stock/profile2?symbol=${symbol}&token=${FINNHUB_API_KEY}`
-      );
-      const profile = await profileResponse.json();
-      console.log(`Profile data for ${symbol}:`, profile);
-
-      // Get quote
-      const quoteResponse = await fetch(
-        `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_API_KEY}`
-      );
-      const quote = await quoteResponse.json();
-      console.log(`Quote data for ${symbol}:`, quote);
-
-      // Get basic financials (including P/E ratio)
-      const metricsResponse = await fetch(
-        `https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${FINNHUB_API_KEY}`
-      );
-      const metrics = await metricsResponse.json();
-      console.log(`Metrics data for ${symbol}:`, metrics);
-
-      if (profile && quote && metrics?.metric) {
-        stockData.push({
-          symbol,
-          name: profile.name || symbol,
-          price: quote.c || 0,
-          change: quote.dp || 0,
-          pe: metrics.metric?.peNormalizedAnnual || metrics.metric?.pe || 0,
-          marketCap: profile.marketCapitalization || 0,
-        });
-        console.log(`Added stock data for ${symbol}:`, stockData[stockData.length - 1]);
-      } else {
-        console.log(`Skipping ${symbol} due to incomplete data`);
-      }
-    } catch (error) {
-      console.error(`Error fetching data for ${symbol}:`, error);
-    }
-  }
-
-  console.log(`Total stocks collected: ${stockData.length}`);
-  
-  // Filter based on risk level
-  const { maxPE } = riskLevels[riskLevel.toLowerCase()] || riskLevels.moderate;
-  console.log(`Filtering stocks with maxPE: ${maxPE}`);
-  
-  const filteredStocks = stockData
-    .filter(stock => stock.pe > 0 && stock.pe <= maxPE)
-    .sort((a, b) => b.change - a.change)
-    .slice(0, 5);
-
-  console.log(`Filtered and sorted stocks:`, filteredStocks);
-  return filteredStocks;
+  return {
+    totalValue,
+    totalProfit,
+    activeStocks: portfolio.active_stocks || 0,
+    stocks: portfolio.stocks
+  };
 }
 
 serve(async (req) => {
@@ -126,129 +64,170 @@ serve(async (req) => {
 
   try {
     const { message, userId } = await req.json();
-    console.log('Received message:', message);
-    
     if (!message || !userId) throw new Error('Message and userId are required');
 
-    // Handle sector and risk preference questions
-    if (message.toLowerCase().includes('invest') || message.toLowerCase().includes('recommend')) {
-      console.log('Handling investment recommendation request');
-      return new Response(
-        JSON.stringify({
-          reply: "I'd be happy to help you find some investment opportunities. What sector interests you? We can look at: Technology, Electric Vehicles, Finance, Healthcare, Retail, Energy, Telecommunications, or Aerospace."
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Check if message contains a sector
-    const sectorMatch = Object.keys(sectorSymbols).find(sector => 
-      message.toLowerCase().includes(sector.toLowerCase())
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
-    
-    console.log('Sector match:', sectorMatch);
 
-    if (sectorMatch && !message.toLowerCase().includes('risk')) {
-      console.log('Handling sector selection, asking for risk preference');
-      return new Response(
-        JSON.stringify({
-          reply: `Great choice! The ${sectorMatch} sector has many opportunities. What's your risk tolerance? We can look at:\n\n` +
-                `1. Conservative: ${riskLevels.conservative.description}\n` +
-                `2. Moderate: ${riskLevels.moderate.description}\n` +
-                `3. Aggressive: ${riskLevels.aggressive.description}\n` +
-                `4. Speculative: ${riskLevels.speculative.description}`
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // If we have both sector and risk level, provide recommendations
-    const riskMatch = Object.keys(riskLevels).find(risk =>
-      message.toLowerCase().includes(risk.toLowerCase())
-    );
-    
-    console.log('Risk match:', riskMatch);
-
-    if (sectorMatch && riskMatch) {
-      console.log('Getting stock recommendations for:', sectorMatch, riskMatch);
-      const recommendations = await getStockRecommendations(sectorMatch, riskMatch);
+    // Handle portfolio analysis requests
+    if (message.toLowerCase().includes('portfolio') && 
+        (message.toLowerCase().includes('analysis') || 
+         message.toLowerCase().includes('overview') || 
+         message.toLowerCase().includes('performance'))) {
+      const analysis = await getPortfolioAnalysis(userId);
       
-      console.log('Received recommendations:', recommendations);
-      
-      if (!recommendations || recommendations.length === 0) {
+      if (!analysis) {
         return new Response(
-          JSON.stringify({
-            reply: `I couldn't find any ${riskMatch} stocks in the ${sectorMatch} sector that match your criteria right now. Would you like to try a different sector or risk level?`
+          JSON.stringify({ 
+            reply: "I don't see any portfolio data yet. Would you like to start by making your first investment?" 
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      const recommendationText = `Here are the top performing ${riskMatch} stocks in the ${sectorMatch} sector:\n\n` +
-        recommendations.map(stock => 
-          `${stock.symbol} (${stock.name}):\n` +
-          `Price: ${formatCurrency(stock.price)}\n` +
-          `Daily Change: ${formatPercent(stock.change)}\n` +
-          `Market Cap: ${formatCurrency(stock.marketCap * 1000000)}\n`
-        ).join('\n') +
-        `\nTo invest in any of these stocks, just tell me how many shares you'd like to buy. For example: "buy 10 shares of AAPL"`;
+      const response = `Here's your current portfolio status:
+Total Value: ${formatCurrency(analysis.totalValue)}
+Performance: ${formatPercent(analysis.totalProfit)}
+Active Stocks: ${analysis.activeStocks}
 
-      console.log('Sending recommendation response:', recommendationText);
-      
+${analysis.stocks.map((stock: any) => 
+  `${stock.symbol}: ${stock.shares} shares at ${formatCurrency(stock.current_price)} per share`
+).join('\n')}`;
+
       return new Response(
-        JSON.stringify({ reply: recommendationText }),
+        JSON.stringify({ reply: response }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Handle portfolio analysis
-    if (message.toLowerCase().includes('portfolio')) {
-      console.log('Handling portfolio analysis request');
-      const supabaseClient = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_ANON_KEY') ?? ''
-      );
+    // Handle trade requests
+    const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i);
+    const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i);
+    
+    if (buyMatch || sellMatch) {
+      const match = buyMatch || sellMatch;
+      const action = buyMatch ? 'buy' : 'sell';
+      const shares = parseInt(match![1]);
+      let symbol = match![2].toUpperCase();
 
-      const { data: portfolio, error } = await supabaseClient
-        .from('portfolios')
-        .select(`*, stocks(*)`)
-        .eq('user_id', userId)
+      const stockMappings: { [key: string]: string } = {
+        'APPLE': 'AAPL',
+        'TESLA': 'TSLA',
+        'MICROSOFT': 'MSFT',
+        'GOOGLE': 'GOOG',
+        'NVIDIA': 'NVDA',
+      };
+      
+      if (stockMappings[symbol]) {
+        symbol = stockMappings[symbol];
+      }
+
+      const { data: stock } = await supabase
+        .from('stocks')
+        .select('current_price, name')
+        .eq('symbol', symbol)
         .single();
 
-      if (error) {
-        console.error('Error fetching portfolio:', error);
+      if (stock) {
+        const totalAmount = stock.current_price * shares;
+        const formattedPrice = formatCurrency(stock.current_price);
+        const formattedTotal = formatCurrency(totalAmount);
+
+        // For sell orders, verify the user has enough shares
+        if (action === 'sell') {
+          const { data: userStock } = await supabase
+            .from('stocks')
+            .select('shares')
+            .eq('symbol', symbol)
+            .eq('portfolio_id', (await supabase
+              .from('portfolios')
+              .select('id')
+              .eq('user_id', userId)
+              .single()).data?.id)
+            .single();
+
+          if (!userStock || userStock.shares < shares) {
+            return new Response(
+              JSON.stringify({
+                reply: `I can't process that sell order. You currently have ${userStock ? userStock.shares : 0} shares of ${symbol} available.`
+              }),
+              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+        }
+
         return new Response(
-          JSON.stringify({ reply: "Sorry, I couldn't retrieve your portfolio." }),
+          JSON.stringify({
+            reply: `Ready to ${action} ${shares} shares of ${symbol} at ${formattedPrice} per share (total: ${formattedTotal}). Please enter your PIN to execute this trade.`
+          }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+    }
 
-      if (!portfolio || !portfolio.stocks || portfolio.stocks.length === 0) {
-        return new Response(
-          JSON.stringify({ reply: "Your portfolio is currently empty." }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      const totalHoldings = portfolio.stocks.reduce((acc, stock) => 
-        acc + (stock.current_price * stock.shares), 0);
-      const stockList = portfolio.stocks
-        .map(stock => `${stock.symbol} (${stock.shares} shares at ${formatCurrency(stock.current_price)} per share)`)
-        .join('\n');
-
+    // Process the PIN confirmation
+    if (message === '1234') {
       return new Response(
-        JSON.stringify({ 
-          reply: `Your Portfolio Summary:\n\nTotal Value: ${formatCurrency(totalHoldings)}\n\nHoldings:\n${stockList}` 
+        JSON.stringify({
+          reply: "Processing your trade now..."
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Default response
-    return new Response(
-      JSON.stringify({ 
-        reply: "I'm here to help with your investment needs. You can ask me about your portfolio, get stock recommendations, or execute trades." 
+    // Handle market news
+    if (message.toLowerCase().includes('market news') || 
+        message.toLowerCase().includes('news') || 
+        message.toLowerCase().includes("what's happening")) {
+      const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
+      const response = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_API_KEY}`);
+      const news = await response.json();
+      
+      let newsResponse = "Here's the latest market news:\n\n";
+      news.slice(0, 5).forEach((item: any, index: number) => {
+        newsResponse += `${index + 1}. ${item.headline}\n${item.summary}\n\n`;
+      });
+      
+      return new Response(
+        JSON.stringify({ reply: newsResponse }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Default to OpenAI for other queries
+    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!openAIApiKey) throw new Error('OpenAI API key not configured');
+
+    const completion = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a helpful investment assistant with real-time access to the user's portfolio data.
+            Format all numbers properly:
+            - Currency: $1,234.56
+            - Percentages: 12.34%
+            - Large numbers: 1,234,567
+            Keep responses friendly and conversational.`
+          },
+          { role: 'user', content: message }
+        ],
       }),
+    });
+
+    const data = await completion.json();
+    const reply = data.choices[0].message.content;
+
+    return new Response(
+      JSON.stringify({ reply }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 

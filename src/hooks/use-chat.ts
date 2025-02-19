@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -6,11 +7,6 @@ import { useAuth } from "@/providers/AuthProvider";
 interface Message {
   role: 'assistant' | 'user';
   content: string;
-}
-
-interface ConversationContext {
-  selectedSector?: string;
-  awaitingRisk?: boolean;
 }
 
 // Helper function to format currency
@@ -24,13 +20,11 @@ const formatCurrency = (amount: number): string => {
 export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [context, setContext] = useState<ConversationContext>({});
   const { toast } = useToast();
   const { user } = useAuth();
 
   const clearMessages = () => {
     setMessages([]);
-    setContext({});
   };
 
   const processTradeConfirmation = async (message: string) => {
@@ -182,16 +176,6 @@ export const useChat = () => {
     return null;
   };
 
-  const extractSectorFromMessages = (messages: Message[]): string | undefined => {
-    const sectors = ['technology', 'electric vehicles', 'finance', 'healthcare', 'retail', 'energy', 'telecommunications', 'aerospace'];
-    for (let i = messages.length - 2; i >= 0; i--) {
-      const msg = messages[i].content.toLowerCase();
-      const foundSector = sectors.find(sector => msg.includes(sector));
-      if (foundSector) return foundSector;
-    }
-    return undefined;
-  };
-
   const sendMessage = async (content: string) => {
     try {
       if (!user) {
@@ -210,19 +194,6 @@ export const useChat = () => {
         ]);
         return;
       }
-
-      // Check if we're awaiting risk preference and have a sector
-      const userContent = content.toLowerCase();
-      const riskLevels = ['conservative', 'moderate', 'aggressive', 'speculative'];
-      const isRiskResponse = riskLevels.some(risk => userContent.includes(risk));
-      
-      let messageToSend = content;
-      if (context.awaitingRisk && isRiskResponse) {
-        const sector = context.selectedSector || extractSectorFromMessages(messages);
-        if (sector) {
-          messageToSend = `${sector} sector with ${content}`; // Combine sector and risk
-        }
-      }
       
       // Add user message to chat
       setMessages(prev => [...prev, { role: 'user', content }]);
@@ -230,12 +201,8 @@ export const useChat = () => {
       // Call the edge function
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
-          message: messageToSend,
-          userId: user.id,
-          context: {
-            ...context,
-            previousMessages: messages.slice(-2) // Send last 2 messages for context
-          }
+          message: content,
+          userId: user.id
         },
       });
 
@@ -249,18 +216,6 @@ export const useChat = () => {
         /\$(\d+(?:\.\d{2})?)/g,
         (match, number) => formatCurrency(parseFloat(number))
       );
-
-      // Update context based on the conversation
-      if (formattedReply.includes("What's your risk tolerance?")) {
-        setContext(prev => ({
-          ...prev,
-          selectedSector: extractSectorFromMessages([...messages, { role: 'user', content }]),
-          awaitingRisk: true
-        }));
-      } else {
-        // Reset context after getting recommendations
-        setContext({});
-      }
 
       // Add assistant's response to chat
       setMessages(prev => [...prev, { 
