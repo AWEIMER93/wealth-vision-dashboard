@@ -46,22 +46,13 @@ serve(async (req) => {
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     
     // Create a message that includes the portfolio context
-    const portfolioContext = `
-Current Portfolio Overview:
-Total Holdings: $${portfolio.total_holding?.toLocaleString() ?? '0'}
-Total Profit: $${portfolio.total_profit?.toLocaleString() ?? '0'}
-Active Stocks: ${portfolio.active_stocks ?? 0}
+    const portfolioContext = `Portfolio: $${portfolio.total_holding?.toLocaleString() ?? '0'} total value, ${portfolio.active_stocks ?? 0} stocks.
+Holdings: ${portfolio.stocks?.map(stock => 
+  `${stock.symbol} (${stock.units} @ $${stock.current_price?.toLocaleString() ?? '0'}, ${stock.price_change > 0 ? '+' : ''}${stock.price_change}%)`
+).join(', ')}
 
-Stock Holdings:
-${portfolio.stocks?.map(stock => 
-  `${stock.symbol}: ${stock.units} units at $${stock.current_price?.toLocaleString() ?? '0'} (${stock.price_change > 0 ? '+' : ''}${stock.price_change}%)`
-).join('\n')}
+Question: ${message}`;
 
-User Question: ${message}
-
-Please analyze this portfolio data and provide specific, data-driven advice. When discussing stocks, reference the actual numbers from the portfolio.`;
-
-    // Call OpenAI with the specialized model and system prompt
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -73,22 +64,14 @@ Please analyze this portfolio data and provide specific, data-driven advice. Whe
         messages: [
           {
             role: 'system',
-            content: `You are a professional investment and portfolio management AI assistant. Your expertise includes:
-            - Stock market analysis
-            - Portfolio performance evaluation
-            - Investment strategy recommendations
-            - Risk assessment
-            - Market trends and patterns
-            
-            When responding:
-            1. Always reference specific data from the user's portfolio
-            2. Provide clear, actionable insights
-            3. Explain your reasoning using portfolio metrics
-            4. Be direct and professional
-            5. If discussing a stock, always mention its current price and performance
-            6. Include relevant market context when appropriate
-            
-            You have access to real-time portfolio data which will be provided with each message.`
+            content: `You are a friendly and knowledgeable investment assistant. Keep responses brief and conversational, like a helpful friend who's also a financial expert. Use simple language but don't shy away from mentioning specific numbers when relevant. Be direct and helpful.
+
+Guidelines:
+- Keep responses under 3 sentences when possible
+- Use casual, friendly language
+- Reference specific portfolio data naturally
+- Give clear, actionable advice
+- Be encouraging but honest`
           },
           {
             role: 'user',
