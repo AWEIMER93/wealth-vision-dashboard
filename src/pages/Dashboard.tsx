@@ -312,7 +312,7 @@ const Dashboard = () => {
     MSFT: Monitor,
     GOOG: Globe2,
     NVDA: Cpu
-  };
+  } as const;
 
   // Calculate total profit percentage
   const profitPercentage = portfolio?.total_profit || 0;
@@ -401,18 +401,9 @@ const Dashboard = () => {
               <Card key={stock.id} className="bg-[#1A1A1A] border-none">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-4">
-                    <img 
-                      src={`https://logo.clearbit.com/${stock.symbol.toLowerCase()}.com`}
-                      alt={stock.name}
-                      className="h-8 w-8 rounded"
-                      onError={(e) => {
-                        // Fallback to Lucide icon if logo fails to load
-                        e.currentTarget.style.display = 'none';
-                        const iconEl = e.currentTarget.nextElementSibling;
-                        if (iconEl) iconEl.style.display = 'block';
-                      }}
-                    />
-                    <StockIcon className="h-6 w-6 hidden" /> {/* Hidden by default, shown if logo fails */}
+                    <div className="flex items-center">
+                      <StockIcon className="h-6 w-6 text-gray-400" />
+                    </div>
                     <p className="text-sm text-gray-400">Shares {stock.shares}</p>
                   </div>
                   <div>

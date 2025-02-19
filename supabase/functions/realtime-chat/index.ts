@@ -58,8 +58,15 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "gpt-4o-realtime-preview-2024-12-17",
-        voice: "nova", // Using OpenAI's best voice
-        instructions: "You are a knowledgeable portfolio advisor providing real-time investment advice. Always format currency values properly and provide clear explanations."
+        voice: "alloy", // Using OpenAI's reliable voice
+        modalities: ["text", "audio"],
+        instructions: "You are a knowledgeable portfolio advisor providing real-time investment advice. Always format currency values properly and provide clear explanations.",
+        turn_detection: {
+          type: "server_vad",
+          threshold: 0.5,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 1000
+        }
       }),
     });
 
