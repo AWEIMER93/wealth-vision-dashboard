@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { 
   Loader2, 
   Home, 
-  LineChart, 
+  LineChart as LineChartIcon, 
   BarChart2, 
   Users, 
   HelpCircle, 
@@ -23,6 +23,7 @@ import { useEffect, useState } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { ChatBot } from "@/components/chat/ChatBot";
 import VoiceInterface from "@/components/VoiceInterface";
+import { LineChart, XAxis, YAxis, Tooltip, Line } from 'recharts';
 
 interface Stock {
   id: string;
@@ -51,6 +52,10 @@ const Dashboard = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+  const [performanceData, setPerformanceData] = useState<{
+    time: string;
+    value: number;
+  }[]>([]);
 
   const handleSignOut = async () => {
     try {
@@ -140,6 +145,14 @@ const Dashboard = () => {
         : 0;
 
       const activeStocks = data.stocks?.length || 0;
+
+      // Update performance data
+      const currentTime = new Date().toLocaleTimeString();
+      setPerformanceData(prev => {
+        const newData = [...prev, { time: currentTime, value: totalHolding }];
+        // Keep last 20 data points for the chart
+        return newData.slice(-20);
+      });
 
       // Update portfolio with calculated values
       const { error: updateError } = await supabase
@@ -317,7 +330,7 @@ const Dashboard = () => {
             Dashboard
           </Button>
           <Button variant="ghost" className="w-full justify-start gap-3 text-gray-400">
-            <LineChart className="h-5 w-5" />
+            <LineChartIcon className="h-5 w-5" />
             Portfolio
           </Button>
           <Button variant="ghost" className="w-full justify-start gap-3 text-gray-400">
@@ -419,7 +432,36 @@ const Dashboard = () => {
                 ))}
               </div>
             </div>
-            <div className="h-[300px] w-full bg-gradient-to-b from-blue-500/20 to-transparent rounded-lg" />
+            <div className="h-[300px] w-full">
+              {performanceData.length > 0 && (
+                <LineChart width={800} height={300} data={performanceData}>
+                  <XAxis 
+                    dataKey="time" 
+                    stroke="#666"
+                    tick={{ fill: '#666' }}
+                  />
+                  <YAxis 
+                    stroke="#666"
+                    tick={{ fill: '#666' }}
+                    tickFormatter={(value) => `$${value.toLocaleString()}`}
+                  />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: '#1A1A1A',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: '#fff'
+                    }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="value" 
+                    stroke="#3B82F6" 
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </LineChart>
+              )}
+            </div>
           </CardContent>
         </Card>
 
