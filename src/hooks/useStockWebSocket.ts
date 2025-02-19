@@ -27,21 +27,19 @@ export const useStockWebSocket = (symbols: string[]) => {
     
     const fetchStockData = async () => {
       try {
-        // Get API key from secrets
-        const { data: secrets, error } = await supabase
-          .from('secrets')
-          .select('value')
-          .eq('name', 'FINNHUB_API_KEY')
-          .single();
+        // Get API key from Supabase secrets
+        const { data, error } = await supabase.rpc('get_secret', {
+          name: 'FINNHUB_API_KEY'
+        });
 
-        if (error || !secrets?.value) {
+        if (error) {
           console.error('Failed to get API key:', error);
           return;
         }
 
         // Configure Finnhub client
         const finnhubClient = new finnhub.DefaultApi();
-        finnhubClient.setApiKey(secrets.value);
+        finnhubClient.setApiKey(data);
 
         // Function to fetch data for a single symbol
         const fetchSymbol = async (symbol: string) => {
