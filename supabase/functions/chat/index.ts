@@ -8,7 +8,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Helper function to format currency
+// Helper function to format currency with commas and decimals
 const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -18,12 +18,43 @@ const formatCurrency = (amount: number): string => {
   }).format(amount);
 };
 
-// Helper function to get market news
-async function getMarketNews() {
-  const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
-  const response = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_API_KEY}`);
-  const data = await response.json();
-  return data.slice(0, 5);
+// Helper function to format percentages
+const formatPercent = (value: number): string => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'percent',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value / 100);
+};
+
+async function getPortfolioAnalysis(userId: string) {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
+
+  // Get user's portfolio data
+  const { data: portfolio, error: portfolioError } = await supabase
+    .from('portfolios')
+    .select(`
+      *,
+      stocks (*)
+    `)
+    .eq('user_id', userId)
+    .single();
+
+  if (portfolioError) throw portfolioError;
+  if (!portfolio) return null;
+
+  const totalValue = portfolio.total_holding || 0;
+  const totalProfit = portfolio.total_profit || 0;
+  
+  return {
+    totalValue,
+    totalProfit,
+    activeStocks: portfolio.active_stocks || 0,
+    stocks: portfolio.stocks
+  };
 }
 
 serve(async (req) => {
@@ -33,31 +64,45 @@ serve(async (req) => {
 
   try {
     const { message, userId } = await req.json();
-    
-    if (!message) throw new Error('Message is required');
-    if (!userId) throw new Error('User ID is required');
+    if (!message || !userId) throw new Error('Message and userId are required');
 
-    // Check if user is asking for market news
-    if (message.toLowerCase().includes('market news') || 
-        message.toLowerCase().includes('news') || 
-        message.toLowerCase().includes("what's happening in the market")) {
-      const news = await getMarketNews();
-      let newsResponse = "Let me share the latest market updates with you:\n\n";
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+
+    // Handle portfolio analysis requests
+    if (message.toLowerCase().includes('portfolio') && 
+        (message.toLowerCase().includes('analysis') || 
+         message.toLowerCase().includes('overview') || 
+         message.toLowerCase().includes('performance'))) {
+      const analysis = await getPortfolioAnalysis(userId);
       
-      news.forEach((item: any, index: number) => {
-        newsResponse += `${index + 1}. ${item.headline}\n`;
-        if (item.summary) {
-          newsResponse += `   ${item.summary}\n\n`;
-        }
-      });
-      
+      if (!analysis) {
+        return new Response(
+          JSON.stringify({ 
+            reply: "I don't see any portfolio data yet. Would you like to start by making your first investment?" 
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const response = `Here's your current portfolio status:
+Total Value: ${formatCurrency(analysis.totalValue)}
+Performance: ${formatPercent(analysis.totalProfit)}
+Active Stocks: ${analysis.activeStocks}
+
+${analysis.stocks.map((stock: any) => 
+  `${stock.symbol}: ${stock.shares} shares at ${formatCurrency(stock.current_price)} per share`
+).join('\n')}`;
+
       return new Response(
-        JSON.stringify({ reply: newsResponse }),
+        JSON.stringify({ reply: response }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Process trade requests with more natural language
+    // Handle trade requests
     const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i);
     const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i);
     
@@ -65,12 +110,19 @@ serve(async (req) => {
       const match = buyMatch || sellMatch;
       const action = buyMatch ? 'buy' : 'sell';
       const shares = parseInt(match![1]);
-      const symbol = match![2].toUpperCase();
+      let symbol = match![2].toUpperCase();
 
-      const supabase = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-      );
+      const stockMappings: { [key: string]: string } = {
+        'APPLE': 'AAPL',
+        'TESLA': 'TSLA',
+        'MICROSOFT': 'MSFT',
+        'GOOGLE': 'GOOG',
+        'NVIDIA': 'NVDA',
+      };
+      
+      if (stockMappings[symbol]) {
+        symbol = stockMappings[symbol];
+      }
 
       const { data: stock } = await supabase
         .from('stocks')
@@ -83,16 +135,68 @@ serve(async (req) => {
         const formattedPrice = formatCurrency(stock.current_price);
         const formattedTotal = formatCurrency(totalAmount);
 
+        // For sell orders, verify the user has enough shares
+        if (action === 'sell') {
+          const { data: userStock } = await supabase
+            .from('stocks')
+            .select('shares')
+            .eq('symbol', symbol)
+            .eq('portfolio_id', (await supabase
+              .from('portfolios')
+              .select('id')
+              .eq('user_id', userId)
+              .single()).data?.id)
+            .single();
+
+          if (!userStock || userStock.shares < shares) {
+            return new Response(
+              JSON.stringify({
+                reply: `I can't process that sell order. You currently have ${userStock ? userStock.shares : 0} shares of ${symbol} available.`
+              }),
+              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+        }
+
         return new Response(
           JSON.stringify({
-            reply: `Sure! I'll help you ${action} ${shares} shares of ${symbol} at ${formattedPrice} per share, for a total of ${formattedTotal}.`
+            reply: `Ready to ${action} ${shares} shares of ${symbol} at ${formattedPrice} per share (total: ${formattedTotal}). Please enter your PIN to execute this trade.`
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
     }
 
-    // Call OpenAI for other queries
+    // Process the PIN confirmation
+    if (message === '1234') {
+      return new Response(
+        JSON.stringify({
+          reply: "Processing your trade now..."
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Handle market news
+    if (message.toLowerCase().includes('market news') || 
+        message.toLowerCase().includes('news') || 
+        message.toLowerCase().includes("what's happening")) {
+      const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
+      const response = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_API_KEY}`);
+      const news = await response.json();
+      
+      let newsResponse = "Here's the latest market news:\n\n";
+      news.slice(0, 5).forEach((item: any, index: number) => {
+        newsResponse += `${index + 1}. ${item.headline}\n${item.summary}\n\n`;
+      });
+      
+      return new Response(
+        JSON.stringify({ reply: newsResponse }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Default to OpenAI for other queries
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openAIApiKey) throw new Error('OpenAI API key not configured');
 
@@ -107,12 +211,12 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `You are a friendly and helpful investment assistant. Keep your responses conversational and natural.
-            When formatting numbers:
-            - Use currency format like $1,234.56
-            - Use commas for thousands like 1,234
-            - Show percentages like 12.5%
-            Be concise and friendly, avoid formal language.`
+            content: `You are a helpful investment assistant with real-time access to the user's portfolio data.
+            Format all numbers properly:
+            - Currency: $1,234.56
+            - Percentages: 12.34%
+            - Large numbers: 1,234,567
+            Keep responses friendly and conversational.`
           },
           { role: 'user', content: message }
         ],
