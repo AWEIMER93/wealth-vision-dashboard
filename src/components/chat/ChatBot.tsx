@@ -25,7 +25,7 @@ export const ChatBot = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [showMenu, setShowMenu] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { messages, isLoading, sendMessage } = useChat();
+  const { messages, isLoading, sendMessage, clearMessages } = useChat();
   const { user } = useAuth();
   
   const scrollToBottom = () => {
@@ -47,6 +47,7 @@ export const ChatBot = () => {
 
   const handleMenuReturn = () => {
     setShowMenu(true);
+    clearMessages();
   };
   
   return (
@@ -56,7 +57,7 @@ export const ChatBot = () => {
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 border-b border-white/10">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-white">Portfolio Assistant</span>
-              {!showMenu && messages.length > 0 && (
+              {!showMenu && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -78,7 +79,7 @@ export const ChatBot = () => {
           </CardHeader>
 
           <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
-            {showMenu && messages.length === 0 ? (
+            {showMenu ? (
               <>
                 <div className="text-center text-gray-400 pt-8 pb-4">
                   How can I assist you with your portfolio today?

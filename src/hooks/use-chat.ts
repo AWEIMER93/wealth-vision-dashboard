@@ -15,6 +15,10 @@ export const useChat = () => {
   const { toast } = useToast();
   const { user } = useAuth();
 
+  const clearMessages = () => {
+    setMessages([]);
+  };
+
   const processTradeConfirmation = async (message: string) => {
     if (message === '1234' && messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
@@ -81,14 +85,14 @@ export const useChat = () => {
             
             if (transactionError) throw transactionError;
             
-            // Update portfolio total holding
+            // Get current portfolio total holding
             const { data: updatedPortfolio } = await supabase
               .from('portfolios')
               .select('*')
               .eq('user_id', user!.id)
               .single();
 
-            // Trigger a real-time update for the portfolio
+            // Update portfolio total holding
             if (updatedPortfolio) {
               const totalHolding = (updatedPortfolio.total_holding || 0) + 
                 (type === 'BUY' ? 1 : -1) * (stock.current_price * shares);
@@ -164,5 +168,6 @@ export const useChat = () => {
     messages,
     isLoading,
     sendMessage,
+    clearMessages,
   };
 };
