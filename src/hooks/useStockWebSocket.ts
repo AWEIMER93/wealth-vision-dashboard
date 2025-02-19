@@ -9,6 +9,15 @@ interface StockUpdate {
   timestamp: Date;
 }
 
+interface FinnhubQuoteResponse {
+  c: number;  // Current price
+  h: number;  // High price of the day
+  l: number;  // Low price of the day
+  o: number;  // Open price of the day
+  pc: number; // Previous close price
+  t: number;  // Timestamp
+}
+
 export const useStockWebSocket = (symbols: string[]) => {
   const [stockUpdates, setStockUpdates] = useState<Record<string, StockUpdate>>({});
   const [isConnected, setIsConnected] = useState(false);
@@ -18,10 +27,10 @@ export const useStockWebSocket = (symbols: string[]) => {
     
     const fetchStockData = async () => {
       try {
-        // Get API key from Supabase
+        // Get API key from secrets
         const { data: secrets, error } = await supabase
-          .from('portfolios')
-          .select('*')
+          .from('secrets')
+          .select('value')
           .eq('name', 'FINNHUB_API_KEY')
           .single();
 
@@ -37,23 +46,21 @@ export const useStockWebSocket = (symbols: string[]) => {
         // Function to fetch data for a single symbol
         const fetchSymbol = async (symbol: string) => {
           try {
-            const data = await new Promise((resolve, reject) => {
+            const data = await new Promise<FinnhubQuoteResponse>((resolve, reject) => {
               finnhubClient.quote(symbol, (error, data, response) => {
                 if (error) reject(error);
-                else resolve(data);
+                else resolve(data as FinnhubQuoteResponse);
               });
             });
 
-            if (data) {
-              setStockUpdates(prev => ({
-                ...prev,
-                [symbol]: {
-                  symbol,
-                  currentPrice: data.c,
-                  timestamp: new Date(),
-                }
-              }));
-            }
+            setStockUpdates(prev => ({
+              ...prev,
+              [symbol]: {
+                symbol,
+                currentPrice: data.c,
+                timestamp: new Date(),
+              }
+            }));
           } catch (error) {
             console.error(`Error fetching data for ${symbol}:`, error);
           }
