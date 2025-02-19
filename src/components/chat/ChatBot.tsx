@@ -28,17 +28,12 @@ export const ChatBot = () => {
   const { messages, isLoading, sendMessage, clearMessages } = useChat();
   const { user } = useAuth();
   
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
   useEffect(() => {
+    const scrollToBottom = () => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
     scrollToBottom();
   }, [messages]);
-  
-  if (!user) {
-    return null;
-  }
   
   const handleQuickAction = (action: string) => {
     setShowMenu(false);
@@ -49,6 +44,11 @@ export const ChatBot = () => {
     setShowMenu(true);
     clearMessages();
   };
+
+  // Render null only if there's no user
+  if (!user) {
+    return null;
+  }
   
   return (
     <div className="fixed bottom-4 right-4 z-50">

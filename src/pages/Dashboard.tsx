@@ -57,6 +57,7 @@ const Dashboard = () => {
     value: number;
   }[]>([]);
 
+  // Move this outside of the query
   const handleSignOut = async () => {
     try {
       await signOut();
@@ -70,6 +71,7 @@ const Dashboard = () => {
     }
   };
 
+  // Always define the query, even if there's no user
   const { data: portfolio, isLoading, error } = useQuery<Portfolio>({
     queryKey: ['portfolio', user?.id],
     queryFn: async () => {
@@ -271,6 +273,7 @@ const Dashboard = () => {
     };
   }, [user?.id, queryClient, toast]);
 
+  // Early return after hooks
   if (!user) {
     return <Navigate to="/login" />;
   }
