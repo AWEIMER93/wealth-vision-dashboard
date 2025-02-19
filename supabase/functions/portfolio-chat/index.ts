@@ -1,3 +1,4 @@
+
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4';
 
@@ -27,13 +28,33 @@ function parseTradeCommand(message: string): TradeCommand | null {
 }
 
 serve(async (req) => {
+  // Handle CORS preflight request
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const { message, pin, tradeCommand: pendingTrade } = await req.json();
-    
+    // Check if request body exists and is not empty
+    const bodyText = await req.text();
+    if (!bodyText) {
+      throw new Error('Request body is empty');
+    }
+
+    // Parse the body text into JSON
+    let body;
+    try {
+      body = JSON.parse(bodyText);
+    } catch (error) {
+      console.error('JSON parse error:', error);
+      throw new Error('Invalid JSON in request body');
+    }
+
+    const { message, pin, tradeCommand: pendingTrade } = body;
+
+    if (!message) {
+      throw new Error('Message is required');
+    }
+
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       throw new Error('No authorization header');
@@ -91,6 +112,75 @@ serve(async (req) => {
           }
         }
 
+        // If PIN is provided, execute the trade
+        if (pin && pendingTrade) {
+          // Verify PIN (you should implement proper PIN verification)
+          if (pin !== '1234') { // Replace with actual PIN verification
+            return new Response(
+              JSON.stringify({ reply: 'Invalid PIN. Trade cancelled.' }),
+              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          // Execute trade
+          if (pendingTrade.type === 'SELL') {
+            if (!stock || stock.units < pendingTrade.units) {
+              return new Response(
+                JSON.stringify({ reply: 'Insufficient shares for this trade.' }),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+
+            // Update stock holdings
+            await supabaseClient
+              .from('stocks')
+              .update({ units: stock.units - pendingTrade.units })
+              .eq('id', stock.id);
+          } else {
+            if (stock) {
+              // Update existing stock
+              await supabaseClient
+                .from('stocks')
+                .update({ units: stock.units + pendingTrade.units })
+                .eq('id', stock.id);
+            } else {
+              // Add new stock
+              await supabaseClient
+                .from('stocks')
+                .insert({
+                  portfolio_id: portfolio.id,
+                  symbol: pendingTrade.symbol,
+                  name: pendingTrade.symbol,
+                  units: pendingTrade.units,
+                  current_price: currentPrice,
+                });
+            }
+          }
+
+          // Record transaction
+          await supabaseClient
+            .from('transactions')
+            .insert({
+              portfolio_id: portfolio.id,
+              stock_id: stock?.id,
+              type: pendingTrade.type,
+              units: pendingTrade.units,
+              price_per_unit: currentPrice,
+              total_amount: totalAmount,
+              status: 'completed',
+            });
+
+          return new Response(
+            JSON.stringify({
+              reply: `Trade executed successfully:\n` +
+                    `${pendingTrade.type === 'BUY' ? 'Bought' : 'Sold'} ${pendingTrade.units} shares of ${pendingTrade.symbol}\n` +
+                    `Price: $${currentPrice} per share\n` +
+                    `Total: $${totalAmount}`
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
         // Request PIN verification with trade details
         return new Response(
           JSON.stringify({
@@ -107,90 +197,6 @@ serve(async (req) => {
       }
     }
 
-    // Handle PIN verification and trade execution
-    if (pin && pendingTrade) {
-      // Verify PIN (you should implement proper PIN verification)
-      if (pin !== '1234') { // Replace with actual PIN verification
-        return new Response(
-          JSON.stringify({ reply: 'Invalid PIN. Trade cancelled.' }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // Get portfolio and stock data
-      const { data: portfolio } = await supabaseClient
-        .from('portfolios')
-        .select('id, stocks!inner(id, symbol, units, current_price)')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!portfolio) {
-        throw new Error('Portfolio not found');
-      }
-
-      const stock = portfolio.stocks.find(s => s.symbol === pendingTrade.symbol);
-      const currentPrice = stock?.current_price || 100;
-      const totalAmount = currentPrice * pendingTrade.units;
-
-      // Execute trade
-      if (pendingTrade.type === 'SELL') {
-        if (!stock || stock.units < pendingTrade.units) {
-          return new Response(
-            JSON.stringify({ reply: 'Insufficient shares for this trade.' }),
-            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-
-        // Update stock holdings
-        await supabaseClient
-          .from('stocks')
-          .update({ units: stock.units - pendingTrade.units })
-          .eq('id', stock.id);
-      } else {
-        if (stock) {
-          // Update existing stock
-          await supabaseClient
-            .from('stocks')
-            .update({ units: stock.units + pendingTrade.units })
-            .eq('id', stock.id);
-        } else {
-          // Add new stock
-          await supabaseClient
-            .from('stocks')
-            .insert({
-              portfolio_id: portfolio.id,
-              symbol: pendingTrade.symbol,
-              name: pendingTrade.symbol,
-              units: pendingTrade.units,
-              current_price: currentPrice,
-            });
-        }
-      }
-
-      // Record transaction
-      await supabaseClient
-        .from('transactions')
-        .insert({
-          portfolio_id: portfolio.id,
-          stock_id: stock?.id,
-          type: pendingTrade.type,
-          units: pendingTrade.units,
-          price_per_unit: currentPrice,
-          total_amount: totalAmount,
-          status: 'completed',
-        });
-
-      return new Response(
-        JSON.stringify({
-          reply: `Trade executed successfully:\n` +
-                `${pendingTrade.type === 'BUY' ? 'Bought' : 'Sold'} ${pendingTrade.units} shares of ${pendingTrade.symbol}\n` +
-                `Price: $${currentPrice} per share\n` +
-                `Total: $${totalAmount}`
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     // Handle regular chat messages
     const completion = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -199,7 +205,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
