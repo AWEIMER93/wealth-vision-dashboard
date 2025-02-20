@@ -6,8 +6,13 @@ export class AudioRecorder {
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
+  private mediaRecorder: MediaRecorder | null = null;
+  private chunks: Blob[] = [];
+  private isRecording: boolean = false;
+  private lastProcessTime: number = 0;
+  private processingThreshold: number = 2000; // 2 seconds between processing
 
-  constructor(private onAudioData: (audioData: Float32Array) => void) {}
+  constructor(private onAudioData: (audioBlob: Blob) => void) {}
 
   async start() {
     try {
@@ -20,21 +25,37 @@ export class AudioRecorder {
           autoGainControl: true
         }
       });
-      
-      this.audioContext = new AudioContext({
-        sampleRate: 24000,
-      });
-      
-      this.source = this.audioContext.createMediaStreamSource(this.stream);
-      this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
-      
-      this.processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0);
-        this.onAudioData(new Float32Array(inputData));
+
+      this.mediaRecorder = new MediaRecorder(this.stream);
+      this.mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          this.chunks.push(e.data);
+        }
       };
+
+      this.mediaRecorder.onstop = () => {
+        const now = Date.now();
+        if (now - this.lastProcessTime >= this.processingThreshold) {
+          const blob = new Blob(this.chunks, { type: 'audio/webm' });
+          this.onAudioData(blob);
+          this.lastProcessTime = now;
+        }
+        this.chunks = [];
+        if (this.isRecording) {
+          this.mediaRecorder?.start();
+        }
+      };
+
+      this.isRecording = true;
+      this.mediaRecorder.start();
       
-      this.source.connect(this.processor);
-      this.processor.connect(this.audioContext.destination);
+      // Stop and process audio every 3 seconds
+      setInterval(() => {
+        if (this.isRecording && this.mediaRecorder?.state === 'recording') {
+          this.mediaRecorder.stop();
+        }
+      }, 3000);
+
     } catch (error) {
       console.error('Error accessing microphone:', error);
       throw error;
@@ -42,21 +63,16 @@ export class AudioRecorder {
   }
 
   stop() {
-    if (this.source) {
-      this.source.disconnect();
-      this.source = null;
-    }
-    if (this.processor) {
-      this.processor.disconnect();
-      this.processor = null;
+    this.isRecording = false;
+    if (this.mediaRecorder) {
+      if (this.mediaRecorder.state === 'recording') {
+        this.mediaRecorder.stop();
+      }
+      this.mediaRecorder = null;
     }
     if (this.stream) {
       this.stream.getTracks().forEach(track => track.stop());
       this.stream = null;
-    }
-    if (this.audioContext) {
-      this.audioContext.close();
-      this.audioContext = null;
     }
   }
 }
@@ -67,19 +83,53 @@ export class RealtimeChat {
   public elevenLabsKey: string | null = null;
   private portfolioChannel: any = null;
   private isSubscribedToUpdates: boolean = false;
+  private lastMessageTime: number = 0;
+  private messageThreshold: number = 5000; // 5 seconds between messages
 
   constructor(private onMessage: (message: any) => void) {}
 
   async init() {
     try {
-      // Only initialize audio recording
-      this.recorder = new AudioRecorder((audioData) => {
-        console.log('Audio data received:', audioData.length);
+      // Initialize audio recording with blob handling
+      this.recorder = new AudioRecorder(async (audioBlob) => {
+        try {
+          // Convert blob to base64
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            const base64Audio = reader.result?.toString().split(',')[1];
+            if (base64Audio) {
+              // Send to Supabase Edge Function for processing
+              const { data, error } = await supabase.functions.invoke('voice-to-text', {
+                body: { audio: base64Audio }
+              });
+
+              if (error) throw error;
+              if (data?.text) {
+                this.handleUserSpeech(data.text);
+              }
+            }
+          };
+        } catch (error) {
+          console.error('Error processing audio:', error);
+        }
       });
       await this.recorder.start();
     } catch (error) {
       console.error("Error initializing chat:", error);
       throw error;
+    }
+  }
+
+  private handleUserSpeech(text: string) {
+    // Process user's speech and respond accordingly
+    console.log('User said:', text);
+    const lowerText = text.toLowerCase();
+    
+    if (lowerText.includes('portfolio') || 
+        lowerText.includes('stocks') || 
+        lowerText.includes('investments')) {
+      this.subscribeToPortfolioUpdates();
     }
   }
 
@@ -100,8 +150,12 @@ export class RealtimeChat {
           filter: `user_id=eq.${session.user.id}`
         },
         (payload) => {
-          console.log('Portfolio updated:', payload);
-          this.sendMessage("Your portfolio has been updated with the latest data.");
+          const now = Date.now();
+          if (now - this.lastMessageTime >= this.messageThreshold) {
+            console.log('Portfolio updated:', payload);
+            this.sendMessage("Your portfolio has been updated with the latest data.");
+            this.lastMessageTime = now;
+          }
         }
       )
       .subscribe();
@@ -118,7 +172,11 @@ export class RealtimeChat {
   }
 
   async sendMessage(text: string) {
-    this.onMessage({ type: 'response.text', text });
+    const now = Date.now();
+    if (now - this.lastMessageTime >= this.messageThreshold) {
+      this.onMessage({ type: 'response.text', text });
+      this.lastMessageTime = now;
+    }
   }
 
   disconnect() {
