@@ -1,49 +1,18 @@
 import { useAuth } from '@/providers/AuthProvider';
-import { Button } from '@/components/ui/button';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from "@/integrations/supabase/client";
-import { 
-  Loader2, 
-  Home, 
-  LineChart as LineChartIcon, 
-  BarChart2, 
-  Users, 
-  HelpCircle, 
-  ChevronDown,
-  Apple, 
-  Car, 
-  Monitor,
-  Globe2, 
-  Cpu,
-  MonitorSmartphone
-} from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
+import { Button } from '@/components/ui/button';
 import { useEffect, useState } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { ChatBot } from "@/components/chat/ChatBot";
-import { LineChart, XAxis, YAxis, Tooltip, Line } from 'recharts';
-
-interface Stock {
-  id: string;
-  symbol: string;
-  name: string;
-  shares: number;
-  current_price: number | null;
-  price_change: number | null;
-  market_cap: number | null;
-  volume: number | null;
-}
-
-interface Portfolio {
-  id: string;
-  user_id: string;
-  total_holding: number | null;
-  total_profit: number | null;
-  total_investment: number | null;
-  active_stocks: number | null;
-  stocks: Stock[];
-}
+import { Portfolio } from "@/types/portfolio";
+import { Sidebar } from "@/components/dashboard/Sidebar";
+import { PortfolioHeader } from "@/components/dashboard/PortfolioHeader";
+import { StockCards } from "@/components/dashboard/StockCards";
+import { PerformanceChart } from "@/components/dashboard/PerformanceChart";
+import { PortfolioTable } from "@/components/dashboard/PortfolioTable";
 
 const Dashboard = () => {
   const { user, signOut } = useAuth();
@@ -271,7 +240,6 @@ const Dashboard = () => {
     };
   }, [user?.id, queryClient, toast]);
 
-  // Early return after hooks
   if (!user) {
     return <Navigate to="/login" />;
   }
@@ -302,230 +270,26 @@ const Dashboard = () => {
     );
   }
 
-  // Get the first 5 stocks for the stock cards, ensure we have an array
-  const topStocks = portfolio?.stocks?.slice(0, 5) || [];
-  const stockIcons = {
-    AAPL: Apple,
-    TSLA: Car,
-    MSFT: Monitor,
-    GOOG: Globe2,
-    NVDA: Cpu
-  } as const;
-
-  // Calculate total profit percentage
-  const profitPercentage = portfolio?.total_profit || 0;
-
   const userFirstName = user?.email?.split('@')[0].replace(/^\w/, c => c.toUpperCase()) || '';
 
   return (
     <div className="min-h-screen bg-[#121212] text-white">
-      {/* Sidebar */}
-      <div className="fixed left-0 top-0 h-full w-64 bg-[#1A1A1A] p-6 border-r border-white/10">
-        <h1 className="text-2xl font-bold mb-8">Wealth Management Company</h1>
-        
-        <div className="space-y-2 mb-8">
-          <h2 className="text-sm text-gray-400 mb-4">Main Menu</h2>
-          <Button variant="ghost" className="w-full justify-start gap-3 text-blue-500 bg-blue-500/10">
-            <Home className="h-5 w-5" />
-            Dashboard
-          </Button>
-          <Button variant="ghost" className="w-full justify-start gap-3 text-gray-400">
-            <LineChartIcon className="h-5 w-5" />
-            Portfolio
-          </Button>
-          <Button variant="ghost" className="w-full justify-start gap-3 text-gray-400">
-            <BarChart2 className="h-5 w-5" />
-            Analysis
-          </Button>
-          <Button variant="ghost" className="w-full justify-start gap-3 text-gray-400">
-            <Globe2 className="h-5 w-5" />
-            Market
-          </Button>
-        </div>
-
-        <div className="space-y-2">
-          <h2 className="text-sm text-gray-400 mb-4">Support</h2>
-          <Button variant="ghost" className="w-full justify-start gap-3 text-gray-400">
-            <Users className="h-5 w-5" />
-            Community
-          </Button>
-          <Button variant="ghost" className="w-full justify-start gap-3 text-gray-400">
-            <HelpCircle className="h-5 w-5" />
-            Help & Support
-          </Button>
-        </div>
-      </div>
-
-      {/* Main Content */}
+      <Sidebar />
+      
       <div className="ml-64 p-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-2xl font-medium">Welcome, {userFirstName}</h1>
-            <p className="text-gray-400">Here's your stock portfolio overview</p>
-          </div>
-          <Button variant="outline" onClick={handleSignOut} className="border-white/10">
-            Sign out
-          </Button>
-        </div>
-
-        {/* Total Holdings Card */}
-        <Card className="bg-[#1A1A1A] border-none mb-6">
-          <CardContent className="p-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-gray-400 mb-2">Total Holdings</p>
-                <div className="flex items-center gap-4">
-                  <h2 className="text-4xl font-bold">${portfolio?.total_holding?.toLocaleString() ?? '0.00'}</h2>
-                  <span className={`flex items-center gap-1 ${profitPercentage > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {profitPercentage > 0 ? '+' : ''}
-                    {profitPercentage.toFixed(2)}% 
-                    <ChevronDown className={`h-4 w-4 ${profitPercentage > 0 ? 'transform rotate-180' : ''}`} />
-                  </span>
-                </div>
-              </div>
-              <Button variant="outline" className="border-white/10">
-                1D <ChevronDown className="h-4 w-4 ml-2" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Stock Cards Grid */}
-        <div className="grid grid-cols-5 gap-4 mb-8">
-          {topStocks.map(stock => {
-            const StockIcon = stockIcons[stock.symbol as keyof typeof stockIcons] || MonitorSmartphone;
-            return (
-              <Card key={stock.id} className="bg-[#1A1A1A] border-none">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center">
-                      <StockIcon className="h-6 w-6 text-gray-400" />
-                    </div>
-                    <p className="text-sm text-gray-400">Shares {stock.shares}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-400 mb-1">{stock.symbol}</p>
-                    <p className="text-lg font-medium">${stock.current_price?.toLocaleString()}</p>
-                    <p className={`text-sm ${stock.price_change && stock.price_change > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      {stock.price_change && stock.price_change > 0 ? '+' : ''}{stock.price_change}%
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        {/* Portfolio Performance Chart */}
-        <Card className="bg-[#1A1A1A] border-none mb-6">
-          <CardContent className="p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-medium">Portfolio Performance</h3>
-              <div className="flex gap-2">
-                {['1D', '1W', '1M', '6M', '1Y'].map((period) => (
-                  <Button
-                    key={period}
-                    variant={period === '1D' ? 'default' : 'ghost'}
-                    className={period === '1D' ? 'bg-blue-500' : 'text-gray-400'}
-                  >
-                    {period}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <div className="h-[300px] w-full">
-              {performanceData.length > 0 && (
-                <LineChart 
-                  width={800} 
-                  height={300} 
-                  data={performanceData}
-                  margin={{ top: 5, right: 30, left: 60, bottom: 5 }}
-                >
-                  <XAxis 
-                    dataKey="time" 
-                    stroke="#666"
-                    tick={{ fill: '#666' }}
-                  />
-                  <YAxis 
-                    stroke="#666"
-                    tick={{ fill: '#666' }}
-                    tickFormatter={(value) => `$${value.toLocaleString()}`}
-                    width={60}
-                  />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#1A1A1A',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      color: '#fff'
-                    }}
-                    formatter={(value: any) => [`$${value.toLocaleString()}`, 'Value']}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="value" 
-                    stroke="#3B82F6" 
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Portfolio Overview Table */}
-        <Card className="bg-[#1A1A1A] border-none">
-          <CardContent className="p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-medium">Portfolio Overview</h3>
-              <div className="flex gap-2">
-                <Button variant="default" className="bg-blue-500">All</Button>
-                <Button variant="ghost" className="text-gray-400">Gainers</Button>
-                <Button variant="ghost" className="text-gray-400">Losers</Button>
-              </div>
-            </div>
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-gray-400">
-                  <th className="pb-4">Stock</th>
-                  <th className="pb-4">Last Price</th>
-                  <th className="pb-4">Change</th>
-                  <th className="pb-4">Market Cap</th>
-                  <th className="pb-4">Volume</th>
-                  <th className="pb-4">Last 7 days</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm">
-                {portfolio?.stocks?.map((stock) => {
-                  const StockIcon = stockIcons[stock.symbol as keyof typeof stockIcons] || MonitorSmartphone;
-                  return (
-                    <tr key={stock.id} className="border-t border-white/10">
-                      <td className="py-4 flex items-center gap-2">
-                        <StockIcon className="h-5 w-5" />
-                        {stock.symbol}
-                      </td>
-                      <td className="py-4">${stock.current_price?.toLocaleString() ?? '0.00'}</td>
-                      <td className={`py-4 ${stock.price_change && stock.price_change > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                        {stock.price_change && stock.price_change > 0 ? '+' : ''}{stock.price_change?.toFixed(2) ?? '0.00'}%
-                      </td>
-                      <td className="py-4">${((stock.market_cap || 0) / 1e9).toFixed(2)}B</td>
-                      <td className="py-4">${((stock.volume || 0) / 1e9).toFixed(2)}B</td>
-                      <td className="py-4">
-                        <div className={`h-6 w-20 bg-gradient-to-r ${
-                          stock.price_change && stock.price_change > 0 
-                            ? 'from-green-500/20 to-green-500/10' 
-                            : 'from-red-500/20 to-red-500/10'
-                        } rounded`} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+        <PortfolioHeader 
+          portfolio={portfolio!} 
+          userFirstName={userFirstName}
+          onSignOut={handleSignOut}
+        />
+        
+        <StockCards stocks={portfolio?.stocks || []} />
+        
+        <PerformanceChart data={performanceData} />
+        
+        <PortfolioTable stocks={portfolio?.stocks || []} />
       </div>
+      
       <ChatBot />
     </div>
   );
