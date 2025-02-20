@@ -9,7 +9,6 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
   }
@@ -41,32 +40,53 @@ serve(async (req) => {
       throw new Error('Failed to fetch portfolio data')
     }
 
-    // Create the AI context
-    const portfolioContext = portfolio ? `
-      Your user's portfolio total value is $${portfolio.total_holding?.toLocaleString()}.
-      Their active stocks are:
-      ${portfolio.stocks?.map(stock => 
-        `${stock.symbol}: ${stock.shares} shares at $${stock.current_price} (${stock.price_change}% change)`
-      ).join('\n')}
-    ` : 'The user does not have any stocks in their portfolio yet.'
+    // Check for trade execution pattern
+    const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i)
+    const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i)
 
-    // Construct the response based on the message and context
     let reply = ''
 
-    if (message.toLowerCase().includes('portfolio summary')) {
-      reply = `Here's your portfolio summary:\n${portfolioContext}`
+    if (buyMatch || sellMatch) {
+      const match = buyMatch || sellMatch
+      const type = buyMatch ? 'buy' : 'sell'
+      const shares = parseInt(match![1])
+      const symbol = match![2].toUpperCase()
+
+      // Check if stock exists and get current price
+      const { data: stockData } = await supabase
+        .from('stocks')
+        .select('current_price, name')
+        .eq('symbol', symbol)
+        .single()
+
+      if (!stockData) {
+        reply = `I couldn't find the stock ${symbol}. Please check the symbol and try again.`
+      } else {
+        const totalAmount = shares * stockData.current_price
+        reply = `Please confirm your order:\n\n` +
+          `${type.toUpperCase()} ${shares} shares of ${symbol}\n` +
+          `Price per share: $${stockData.current_price}\n` +
+          `Total amount: $${totalAmount}\n\n` +
+          `To confirm this trade, please enter your PIN (1234 for testing).`
+      }
+    } else if (message.toLowerCase().includes('portfolio summary')) {
+      reply = `Here's your portfolio summary:\n` +
+        `Total Value: $${portfolio.total_holding?.toLocaleString()}\n` +
+        `Active Stocks: ${portfolio.active_stocks}\n\n` +
+        `Your holdings:\n` +
+        portfolio.stocks?.map(stock => 
+          `${stock.symbol}: ${stock.shares} shares at $${stock.current_price} (${stock.price_change}% change)`
+        ).join('\n')
     } else if (message.toLowerCase().includes('market overview')) {
       reply = "Based on today's market data:\n" + 
         portfolio.stocks?.map(stock => 
           `${stock.symbol} is trading at $${stock.current_price} (${stock.price_change}% today)`
         ).join('\n')
     } else if (message.toLowerCase().includes('execute trade')) {
-      reply = "To execute a trade, please specify:\n" +
-        "1. Action (buy/sell)\n" +
-        "2. Number of shares\n" +
-        "3. Stock symbol\n\n" +
-        "For example: 'buy 10 shares of AAPL'\n\n" +
-        "You'll need to confirm with your PIN (1234 for testing)."
+      reply = "To execute a trade, type your order like this:\n" +
+        "'buy 10 shares of AAPL' or 'sell 5 shares of TSLA'\n\n" +
+        "Available stocks: AAPL, TSLA, MSFT, GOOG, NVDA\n\n" +
+        "After submitting your order, you'll need to confirm with your PIN."
     } else if (message.toLowerCase().includes('performance')) {
       const totalProfit = portfolio.total_profit || 0
       reply = `Your portfolio performance:\n` +
@@ -98,7 +118,7 @@ serve(async (req) => {
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 // Return 200 even for errors to prevent client side errors
+        status: 200 
       }
     )
   }
