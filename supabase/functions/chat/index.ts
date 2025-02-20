@@ -8,6 +8,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// Stock symbol mappings for natural language
+const stockMappings: { [key: string]: string } = {
+  'APPLE': 'AAPL',
+  'TESLA': 'TSLA',
+  'MICROSOFT': 'MSFT',
+  'GOOGLE': 'GOOG',
+  'NVIDIA': 'NVDA',
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -40,9 +49,9 @@ serve(async (req) => {
       throw new Error('Failed to fetch portfolio data')
     }
 
-    // Check for trade execution pattern
-    const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i)
-    const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i)
+    // Check for trade execution pattern with natural language support
+    const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i)
+    const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i)
 
     let reply = ''
 
@@ -50,7 +59,12 @@ serve(async (req) => {
       const match = buyMatch || sellMatch
       const type = buyMatch ? 'buy' : 'sell'
       const shares = parseInt(match![1])
-      const symbol = match![2].toUpperCase()
+      let symbol = match![2].toUpperCase()
+      
+      // Check if we need to map a company name to a symbol
+      if (stockMappings[symbol]) {
+        symbol = stockMappings[symbol]
+      }
 
       // Check if stock exists and get current price
       const { data: stockData } = await supabase
@@ -60,45 +74,80 @@ serve(async (req) => {
         .single()
 
       if (!stockData) {
-        reply = `I couldn't find the stock ${symbol}. Please check the symbol and try again.`
+        reply = `I couldn't find the stock ${symbol}. You can trade AAPL (Apple), TSLA (Tesla), MSFT (Microsoft), GOOG (Google), or NVDA (Nvidia). Please try again with one of these symbols.`
       } else {
         const totalAmount = shares * stockData.current_price
-        reply = `Please confirm your order:\n\n` +
-          `${type.toUpperCase()} ${shares} shares of ${symbol}\n` +
-          `Price per share: $${stockData.current_price}\n` +
-          `Total amount: $${totalAmount}\n\n` +
-          `To confirm this trade, please enter your PIN (1234 for testing).`
+        reply = `Great! Let me help you with that trade. Here's what you're looking to do:\n\n` +
+          `${type.toUpperCase()} ${shares} shares of ${symbol} at $${stockData.current_price.toLocaleString()} per share\n` +
+          `Total transaction value: $${totalAmount.toLocaleString()}\n\n` +
+          `Please enter your PIN to confirm this trade.`
       }
-    } else if (message.toLowerCase().includes('portfolio summary')) {
-      reply = `Here's your portfolio summary:\n` +
-        `Total Value: $${portfolio.total_holding?.toLocaleString()}\n` +
-        `Active Stocks: ${portfolio.active_stocks}\n\n` +
-        `Your holdings:\n` +
-        portfolio.stocks?.map(stock => 
-          `${stock.symbol}: ${stock.shares} shares at $${stock.current_price} (${stock.price_change}% change)`
-        ).join('\n')
-    } else if (message.toLowerCase().includes('market overview')) {
-      reply = "Based on today's market data:\n" + 
-        portfolio.stocks?.map(stock => 
-          `${stock.symbol} is trading at $${stock.current_price} (${stock.price_change}% today)`
-        ).join('\n')
-    } else if (message.toLowerCase().includes('execute trade')) {
-      reply = "To execute a trade, type your order like this:\n" +
-        "'buy 10 shares of AAPL' or 'sell 5 shares of TSLA'\n\n" +
-        "Available stocks: AAPL, TSLA, MSFT, GOOG, NVDA\n\n" +
-        "After submitting your order, you'll need to confirm with your PIN."
+    } else if (message.toLowerCase().includes('portfolio summary') || message.toLowerCase().includes('my portfolio')) {
+      const totalValue = portfolio.total_holding || 0
+      const totalProfit = portfolio.total_profit || 0
+      const profitPrefix = totalProfit > 0 ? '+' : ''
+      
+      const stocksSummary = portfolio.stocks
+        ?.map(stock => {
+          const value = stock.shares * (stock.current_price || 0)
+          const changePrefix = stock.price_change && stock.price_change > 0 ? '+' : ''
+          return `${stock.name} (${stock.symbol})\n` +
+            `   ${stock.shares} shares at $${stock.current_price?.toLocaleString()} per share\n` +
+            `   Total value: $${value.toLocaleString()}\n` +
+            `   Today's change: ${changePrefix}${stock.price_change}%`
+        })
+        .join('\n\n')
+
+      reply = `📊 Here's your portfolio overview:\n\n` +
+        `Total Portfolio Value: $${totalValue.toLocaleString()}\n` +
+        `Today's Change: ${profitPrefix}${totalProfit}%\n` +
+        `Number of Positions: ${portfolio.active_stocks}\n\n` +
+        `Your Positions:\n\n${stocksSummary}`
+
+    } else if (message.toLowerCase().includes('market overview') || message.toLowerCase().includes('market update')) {
+      const marketSummary = portfolio.stocks
+        ?.map(stock => {
+          const volumeInB = (stock.volume || 0) / 1e9
+          const marketCapInB = (stock.market_cap || 0) / 1e9
+          const changePrefix = stock.price_change && stock.price_change > 0 ? '📈' : '📉'
+          return `${changePrefix} ${stock.name} (${stock.symbol})\n` +
+            `   Current Price: $${stock.current_price?.toLocaleString()}\n` +
+            `   Change: ${stock.price_change}%\n` +
+            `   Market Cap: $${marketCapInB.toFixed(2)}B\n` +
+            `   Volume: $${volumeInB.toFixed(2)}B`
+        })
+        .join('\n\n')
+
+      reply = `📈 Today's Market Update:\n\n${marketSummary}`
+
+    } else if (message.toLowerCase().includes('trade') || message.toLowerCase().includes('buy') || message.toLowerCase().includes('sell')) {
+      reply = "I can help you trade stocks! Just tell me what you want to do using natural language.\n\n" +
+        "For example:\n" +
+        "- \"Buy 10 shares of Apple\"\n" +
+        "- \"Sell 5 shares of Tesla\"\n\n" +
+        "You can use either company names or stock symbols (AAPL, TSLA, MSFT, GOOG, NVDA)."
     } else if (message.toLowerCase().includes('performance')) {
       const totalProfit = portfolio.total_profit || 0
-      reply = `Your portfolio performance:\n` +
-        `Total Value: $${portfolio.total_holding?.toLocaleString()}\n` +
-        `Today's Change: ${totalProfit > 0 ? '+' : ''}${totalProfit.toFixed(2)}%`
+      const profitPrefix = totalProfit > 0 ? '+' : ''
+      
+      const performanceSummary = portfolio.stocks
+        ?.map(stock => {
+          const changePrefix = stock.price_change && stock.price_change > 0 ? '📈' : '📉'
+          return `${changePrefix} ${stock.name}: ${stock.price_change}%`
+        })
+        .join('\n')
+
+      reply = `📊 Performance Report:\n\n` +
+        `Portfolio Total: $${portfolio.total_holding?.toLocaleString()}\n` +
+        `Today's Change: ${profitPrefix}${totalProfit}%\n\n` +
+        `Individual Stock Performance:\n${performanceSummary}`
     } else {
-      reply = "I can help you with:\n" +
-        "- Portfolio Summary\n" +
-        "- Market Overview\n" +
-        "- Execute Trade\n" +
-        "- Performance Analysis\n\n" +
-        "What would you like to know?"
+      reply = "👋 I'm your portfolio assistant! I can help you with:\n\n" +
+        "📊 Portfolio Summary - View your holdings and positions\n" +
+        "📈 Market Overview - Check today's market performance\n" +
+        "💰 Trading - Buy or sell stocks\n" +
+        "📱 Performance Analysis - Track your investment performance\n\n" +
+        "Just let me know what you'd like to know about!"
     }
 
     return new Response(
@@ -114,7 +163,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         error: error.message,
-        reply: "I'm sorry, I encountered an error. Please try again." 
+        reply: "I apologize, but I ran into an issue. Could you please try that again?" 
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
