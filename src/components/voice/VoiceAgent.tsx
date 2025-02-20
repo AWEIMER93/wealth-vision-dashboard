@@ -77,18 +77,28 @@ export const VoiceAgent = () => {
           body: { audio: base64Audio }
         });
 
-      if (transcriptionError) throw transcriptionError;
+      if (transcriptionError) {
+        console.error('Transcription error:', transcriptionError);
+        throw transcriptionError;
+      }
+
+      console.log('Transcription result:', transcriptionData);
 
       // Process the text with the chat function
       const { data: chatData, error: chatError } = await supabase.functions
-        .invoke('chat', {
+        .invoke('portfolio-chat', { // Changed to portfolio-chat to match the chatbot
           body: { 
             message: transcriptionData.text,
             userId: user?.id,
           }
         });
 
-      if (chatError) throw chatError;
+      if (chatError) {
+        console.error('Chat error:', chatError);
+        throw chatError;
+      }
+
+      console.log('Chat response:', chatData);
 
       // Convert response to speech
       const { data: speechData, error: speechError } = await supabase.functions
@@ -96,13 +106,16 @@ export const VoiceAgent = () => {
           body: { text: chatData.reply }
         });
 
-      if (speechError) throw speechError;
+      if (speechError) {
+        console.error('Speech error:', speechError);
+        throw speechError;
+      }
 
       // Play the audio response
       if (audioRef.current) {
         const audioContent = `data:audio/mpeg;base64,${speechData.audio}`;
         audioRef.current.src = audioContent;
-        audioRef.current.play();
+        await audioRef.current.play();
         setIsPlaying(true);
       }
 
@@ -119,7 +132,7 @@ export const VoiceAgent = () => {
   };
 
   return (
-    <div className="fixed bottom-24 right-8 flex items-center gap-2">
+    <div className="fixed bottom-24 left-8 flex items-center gap-2">
       <Button
         variant="outline"
         size="icon"
