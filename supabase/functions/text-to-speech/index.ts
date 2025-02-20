@@ -1,5 +1,5 @@
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,14 +12,14 @@ serve(async (req) => {
   }
 
   try {
-    const { text } = await req.json()
+    const { text, voice_id, model_id } = await req.json()
 
     if (!text) {
       throw new Error('Text is required')
     }
 
-    // Call ElevenLabs API using Roger voice (professional and clear)
-    const response = await fetch('https://api.elevenlabs.io/v1/text-to-speech/CwhRBWXzGAHq8TQ4Fs17', {
+    // Call ElevenLabs API
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice_id}`, {
       method: 'POST',
       headers: {
         'Accept': 'audio/mpeg',
@@ -28,7 +28,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         text,
-        model_id: 'eleven_multilingual_v2',
+        model_id,
         voice_settings: {
           stability: 0.5,
           similarity_boost: 0.75
@@ -37,7 +37,9 @@ serve(async (req) => {
     })
 
     if (!response.ok) {
-      throw new Error('Failed to generate speech')
+      const errorData = await response.json().catch(() => null);
+      console.error('ElevenLabs API error:', errorData);
+      throw new Error('Failed to generate speech');
     }
 
     // Convert audio buffer to base64
@@ -45,14 +47,17 @@ serve(async (req) => {
     const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
 
     return new Response(
-      JSON.stringify({ audio: base64Audio }),
+      JSON.stringify({ audio_base64: base64Audio }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   } catch (error) {
     console.error('Error:', error)
     return new Response(
       JSON.stringify({ error: error.message }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 },
+      { 
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      },
     )
   }
 })

@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { useEffect, useState } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { ChatBot } from "@/components/chat/ChatBot";
-import { VoiceAgent } from "@/components/voice/VoiceAgent";
 import { Portfolio } from "@/types/portfolio";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { PortfolioHeader } from "@/components/dashboard/PortfolioHeader";
@@ -289,7 +288,6 @@ const Dashboard = () => {
       </div>
       
       <ChatBot />
-      <VoiceAgent />
     </div>
   );
 };
