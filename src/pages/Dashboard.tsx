@@ -22,7 +22,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useEffect, useState } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { ChatBot } from "@/components/chat/ChatBot";
-import VoiceInterface from "@/components/VoiceInterface";
 import { LineChart, XAxis, YAxis, Tooltip, Line } from 'recharts';
 
 interface Stock {
@@ -51,7 +50,6 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [performanceData, setPerformanceData] = useState<{
     time: string;
     value: number;
@@ -529,7 +527,6 @@ const Dashboard = () => {
         </Card>
       </div>
       <ChatBot />
-      <VoiceInterface onSpeakingChange={setIsAiSpeaking} />
     </div>
   );
 };
