@@ -4,8 +4,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import { corsHeaders } from "../_shared/cors.ts";
 
 serve(async (req) => {
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response(null, { headers: corsHeaders });
   }
 
   try {
@@ -20,22 +21,23 @@ serve(async (req) => {
       throw new Error('Secret name is required');
     }
 
-    const { data, error } = await supabaseClient
-      .from('secrets')
-      .select('value')
-      .eq('name', secretName)
-      .single();
+    console.log('Fetching secret:', secretName);
 
-    if (error) throw error;
+    // Get the secret from Supabase's internal secrets
+    const secret = Deno.env.get(secretName);
+    if (!secret) {
+      throw new Error(`Secret ${secretName} not found`);
+    }
 
     return new Response(
-      JSON.stringify({ secret: data.value }),
+      JSON.stringify({ secret }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,
       },
     );
   } catch (error) {
+    console.error('Error in get-secret function:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
       {
