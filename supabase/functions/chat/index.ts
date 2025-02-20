@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.21.0'
 import "https://deno.land/x/xhr@0.1.0/mod.ts"
@@ -48,18 +47,27 @@ serve(async (req) => {
 
     let reply = ''
 
-    if (buyMatch || sellMatch) {
+    if (message.toLowerCase().includes('execute trade')) {
+      reply = "I'd be happy to help you execute a trade! Here's how you can do it:\n\n" +
+        "Simply tell me what you want to trade using natural language like:\n" +
+        "   \"Buy 10 shares of Apple\"\n" +
+        "   \"Sell 5 shares of Tesla\"\n\n" +
+        "Available stocks:\n" +
+        "   • Apple (AAPL)\n" +
+        "   • Tesla (TSLA)\n" +
+        "   • Microsoft (MSFT)\n" +
+        "   • Google (GOOG)\n" +
+        "   • NVIDIA (NVDA)"
+    } else if (buyMatch || sellMatch) {
       const match = buyMatch || sellMatch
       const type = buyMatch ? 'buy' : 'sell'
       const shares = parseInt(match![1])
       let symbol = match![2].toUpperCase()
       
-      // Check if we need to map a company name to a symbol
       if (stockMappings[symbol]) {
         symbol = stockMappings[symbol]
       }
 
-      // Check if stock exists and get current price
       const { data: stockData } = await supabase
         .from('stocks')
         .select('current_price, name')
@@ -67,13 +75,20 @@ serve(async (req) => {
         .single()
 
       if (!stockData) {
-        reply = `I couldn't find the stock ${symbol}. You can trade AAPL (Apple), TSLA (Tesla), MSFT (Microsoft), GOOG (Google), or NVDA (Nvidia). Please try again with one of these symbols.`
+        reply = "I couldn't find that stock. Here are the available stocks:\n\n" +
+          "   • Apple (AAPL)\n" +
+          "   • Tesla (TSLA)\n" +
+          "   • Microsoft (MSFT)\n" +
+          "   • Google (GOOG)\n" +
+          "   • NVIDIA (NVDA)\n\n" +
+          "Please try again with one of these stocks."
       } else {
         const totalAmount = shares * stockData.current_price
-        reply = `Great! Let me help you with that trade. Here's what you're looking to do:\n\n` +
-          `${type.toUpperCase()} ${shares} shares of ${symbol} at $${stockData.current_price.toLocaleString()} per share\n` +
-          `Total transaction value: $${totalAmount.toLocaleString()}\n\n` +
-          `Please enter your PIN to confirm this trade.`
+        reply = "📈 Trade Confirmation\n\n" +
+          `Order: ${type.toUpperCase()} ${shares} shares of ${symbol}\n` +
+          `Price: $${stockData.current_price.toLocaleString()} per share\n` +
+          `Total: $${totalAmount.toLocaleString()}\n\n` +
+          "Please enter your PIN to confirm this trade."
       }
     } else if (message.toLowerCase().includes('portfolio summary') || message.toLowerCase().includes('my portfolio')) {
       const totalValue = portfolio.total_holding || 0
@@ -166,11 +181,11 @@ serve(async (req) => {
           ).join('\n\n')
 
     } else {
-      reply = "👋 How can I assist you today? I can help with:\n\n" +
-        "📊 Portfolio Summary - View your holdings and asset allocation\n" +
-        "📈 Market Overview - Check market movers and sector performance\n" +
-        "💰 Trading - Execute buy/sell orders\n" +
-        "📱 Performance Analysis - Track returns and portfolio impact\n\n" +
+      reply = "👋 Hello! I can help you with:\n\n" +
+        "   📊 Portfolio Summary\n" +
+        "   📈 Market Overview\n" +
+        "   💰 Execute Trade\n" +
+        "   📱 Performance Analysis\n\n" +
         "What would you like to know about?"
     }
 
