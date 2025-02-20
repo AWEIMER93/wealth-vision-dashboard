@@ -8,7 +8,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Stock symbol mappings for natural language
 const stockMappings: { [key: string]: string } = {
   'APPLE': 'AAPL',
   'TESLA': 'TSLA',
@@ -29,18 +28,13 @@ serve(async (req) => {
       throw new Error('Message is required')
     }
 
-    // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // Get user's portfolio data
     const { data: portfolio, error: portfolioError } = await supabase
       .from('portfolios')
-      .select(`
-        *,
-        stocks (*)
-      `)
+      .select(`*, stocks (*)`)
       .eq('user_id', userId)
       .single()
 
@@ -49,7 +43,6 @@ serve(async (req) => {
       throw new Error('Failed to fetch portfolio data')
     }
 
-    // Check for trade execution pattern with natural language support
     const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i)
     const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i)
 
@@ -85,77 +78,105 @@ serve(async (req) => {
     } else if (message.toLowerCase().includes('portfolio summary') || message.toLowerCase().includes('my portfolio')) {
       const totalValue = portfolio.total_holding || 0
       const totalProfit = portfolio.total_profit || 0
+      const totalInvestment = portfolio.total_investment || 0
       const profitPrefix = totalProfit > 0 ? '+' : ''
-      
-      const stocksSummary = portfolio.stocks
-        ?.map(stock => {
+
+      const stocksByValue = [...(portfolio.stocks || [])].sort((a, b) => 
+        ((b.current_price || 0) * b.shares) - ((a.current_price || 0) * a.shares)
+      )
+
+      const topHoldings = stocksByValue
+        .map(stock => {
           const value = stock.shares * (stock.current_price || 0)
-          const changePrefix = stock.price_change && stock.price_change > 0 ? '+' : ''
+          const portfolioPercentage = (value / totalValue * 100).toFixed(1)
           return `${stock.name} (${stock.symbol})\n` +
-            `   ${stock.shares} shares at $${stock.current_price?.toLocaleString()} per share\n` +
-            `   Total value: $${value.toLocaleString()}\n` +
-            `   Today's change: ${changePrefix}${stock.price_change}%`
+            `   Value: $${value.toLocaleString()} (${portfolioPercentage}% of portfolio)\n` +
+            `   Shares: ${stock.shares.toLocaleString()}\n` +
+            `   Average Cost: $${(totalInvestment / stock.shares).toFixed(2)}`
         })
         .join('\n\n')
 
-      reply = `📊 Here's your portfolio overview:\n\n` +
+      reply = `📊 Portfolio Summary\n\n` +
         `Total Portfolio Value: $${totalValue.toLocaleString()}\n` +
-        `Today's Change: ${profitPrefix}${totalProfit}%\n` +
-        `Number of Positions: ${portfolio.active_stocks}\n\n` +
-        `Your Positions:\n\n${stocksSummary}`
+        `Total Return: ${profitPrefix}${((totalValue - totalInvestment) / totalInvestment * 100).toFixed(2)}%\n` +
+        `Cash Available: $${(totalValue - totalInvestment).toLocaleString()}\n\n` +
+        `Holdings by Value:\n\n${topHoldings}`
 
     } else if (message.toLowerCase().includes('market overview') || message.toLowerCase().includes('market update')) {
-      const marketSummary = portfolio.stocks
-        ?.map(stock => {
-          const volumeInB = (stock.volume || 0) / 1e9
-          const marketCapInB = (stock.market_cap || 0) / 1e9
-          const changePrefix = stock.price_change && stock.price_change > 0 ? '📈' : '📉'
-          return `${changePrefix} ${stock.name} (${stock.symbol})\n` +
-            `   Current Price: $${stock.current_price?.toLocaleString()}\n` +
-            `   Change: ${stock.price_change}%\n` +
-            `   Market Cap: $${marketCapInB.toFixed(2)}B\n` +
-            `   Volume: $${volumeInB.toFixed(2)}B`
-        })
-        .join('\n\n')
+      const gainers = portfolio.stocks
+        ?.filter(stock => (stock.price_change || 0) > 0)
+        .sort((a, b) => (b.price_change || 0) - (a.price_change || 0))
 
-      reply = `📈 Today's Market Update:\n\n${marketSummary}`
+      const losers = portfolio.stocks
+        ?.filter(stock => (stock.price_change || 0) < 0)
+        .sort((a, b) => (a.price_change || 0) - (b.price_change || 0))
 
-    } else if (message.toLowerCase().includes('trade') || message.toLowerCase().includes('buy') || message.toLowerCase().includes('sell')) {
-      reply = "I can help you trade stocks! Just tell me what you want to do using natural language.\n\n" +
-        "For example:\n" +
-        "- \"Buy 10 shares of Apple\"\n" +
-        "- \"Sell 5 shares of Tesla\"\n\n" +
-        "You can use either company names or stock symbols (AAPL, TSLA, MSFT, GOOG, NVDA)."
+      reply = `📈 Market Overview\n\n` +
+        `Top Gainers Today:\n` +
+        gainers?.map(stock => 
+          `${stock.name} (${stock.symbol}): +${stock.price_change}%\n` +
+          `   Volume: ${(stock.volume || 0).toLocaleString()} shares\n` +
+          `   Market Cap: $${(stock.market_cap || 0).toLocaleString()}`
+        ).join('\n\n') + 
+        `\n\nTop Decliners Today:\n` +
+        losers?.map(stock => 
+          `${stock.name} (${stock.symbol}): ${stock.price_change}%\n` +
+          `   Volume: ${(stock.volume || 0).toLocaleString()} shares\n` +
+          `   Market Cap: $${(stock.market_cap || 0).toLocaleString()}`
+        ).join('\n\n')
+
     } else if (message.toLowerCase().includes('performance')) {
+      const totalValue = portfolio.total_holding || 0
       const totalProfit = portfolio.total_profit || 0
-      const profitPrefix = totalProfit > 0 ? '+' : ''
       
-      const performanceSummary = portfolio.stocks
+      const stockPerformance = portfolio.stocks
         ?.map(stock => {
-          const changePrefix = stock.price_change && stock.price_change > 0 ? '📈' : '📉'
-          return `${changePrefix} ${stock.name}: ${stock.price_change}%`
+          const value = stock.shares * (stock.current_price || 0)
+          const dayChange = value * (stock.price_change || 0) / 100
+          return {
+            symbol: stock.symbol,
+            name: stock.name,
+            dayChange,
+            percentChange: stock.price_change || 0,
+            contribution: (dayChange / totalValue * 100).toFixed(2)
+          }
         })
-        .join('\n')
+        .sort((a, b) => b.dayChange - a.dayChange)
 
-      reply = `📊 Performance Report:\n\n` +
-        `Portfolio Total: $${portfolio.total_holding?.toLocaleString()}\n` +
-        `Today's Change: ${profitPrefix}${totalProfit}%\n\n` +
-        `Individual Stock Performance:\n${performanceSummary}`
+      reply = `📊 Performance Analysis\n\n` +
+        `Today's Portfolio Change: ${totalProfit > 0 ? '+' : ''}${totalProfit}% ` +
+        `($${(totalValue * totalProfit / 100).toLocaleString()})\n\n` +
+        `Top Contributors:\n` +
+        stockPerformance
+          ?.filter(stock => stock.dayChange > 0)
+          .map(stock => 
+            `${stock.name} (${stock.symbol})\n` +
+            `   Day Change: +${stock.percentChange}%\n` +
+            `   Dollar Impact: +$${stock.dayChange.toLocaleString()}\n` +
+            `   Portfolio Impact: +${stock.contribution}%`
+          ).join('\n\n') +
+        `\n\nLargest Detractors:\n` +
+        stockPerformance
+          ?.filter(stock => stock.dayChange < 0)
+          .map(stock => 
+            `${stock.name} (${stock.symbol})\n` +
+            `   Day Change: ${stock.percentChange}%\n` +
+            `   Dollar Impact: -$${Math.abs(stock.dayChange).toLocaleString()}\n` +
+            `   Portfolio Impact: ${stock.contribution}%`
+          ).join('\n\n')
+
     } else {
-      reply = "👋 I'm your portfolio assistant! I can help you with:\n\n" +
-        "📊 Portfolio Summary - View your holdings and positions\n" +
-        "📈 Market Overview - Check today's market performance\n" +
-        "💰 Trading - Buy or sell stocks\n" +
-        "📱 Performance Analysis - Track your investment performance\n\n" +
-        "Just let me know what you'd like to know about!"
+      reply = "👋 How can I assist you today? I can help with:\n\n" +
+        "📊 Portfolio Summary - View your holdings and asset allocation\n" +
+        "📈 Market Overview - Check market movers and sector performance\n" +
+        "💰 Trading - Execute buy/sell orders\n" +
+        "📱 Performance Analysis - Track returns and portfolio impact\n\n" +
+        "What would you like to know about?"
     }
 
     return new Response(
       JSON.stringify({ reply }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     )
 
   } catch (error) {
@@ -165,10 +186,7 @@ serve(async (req) => {
         error: error.message,
         reply: "I apologize, but I ran into an issue. Could you please try that again?" 
       }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     )
   }
 })
