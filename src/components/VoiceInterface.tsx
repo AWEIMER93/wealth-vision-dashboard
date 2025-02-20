@@ -18,6 +18,22 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
   const chatRef = useRef<RealtimeChat | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  const fetchElevenLabsKey = async () => {
+    try {
+      const { data: { value }, error } = await supabase
+        .from('secrets')
+        .select('value')
+        .eq('name', 'ELEVEN_LABS_API_KEY')
+        .single();
+
+      if (error) throw error;
+      return value;
+    } catch (error) {
+      console.error('Error fetching ElevenLabs key:', error);
+      return null;
+    }
+  };
+
   const playAudio = async (text: string) => {
     try {
       onSpeakingChange(true);
@@ -91,7 +107,13 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
 
   const startConversation = async () => {
     try {
+      const elevenLabsKey = await fetchElevenLabsKey();
+      if (!elevenLabsKey) {
+        throw new Error('ElevenLabs API key not found');
+      }
+
       chatRef.current = new RealtimeChat(handleMessage);
+      chatRef.current.elevenLabsKey = elevenLabsKey;
       await chatRef.current.init();
       setIsConnected(true);
       
