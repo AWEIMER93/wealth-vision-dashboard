@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -260,12 +261,16 @@ export const useChat = () => {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Chat function error:', error);
+        throw error;
+      }
 
-      let formattedReply = data.reply || "I'm sorry, I couldn't process that request.";
-      
-      // Apply comprehensive formatting to the response
-      formattedReply = formatResponse(formattedReply);
+      if (!data?.reply) {
+        throw new Error('No response from chat function');
+      }
+
+      let formattedReply = formatResponse(data.reply);
 
       // Update context based on the conversation
       if (formattedReply.toLowerCase().includes("risk tolerance")) {
@@ -283,6 +288,7 @@ export const useChat = () => {
         role: 'assistant', 
         content: formattedReply
       }]);
+
     } catch (error: any) {
       console.error('Chat error:', error);
       toast({
@@ -290,6 +296,12 @@ export const useChat = () => {
         description: error.message || "Failed to send message",
         variant: "destructive",
       });
+      
+      // Add error message to chat
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "I'm sorry, I encountered an error. Please try again."
+      }]);
     } finally {
       setIsLoading(false);
     }
