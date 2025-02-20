@@ -1,7 +1,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
-import { Mic, Square, VolumeHigh } from "lucide-react";
+import { Mic, Square, Volume2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/providers/AuthProvider";
@@ -135,7 +135,7 @@ export const VoiceAgent = () => {
       </Button>
       {isPlaying && (
         <div className="bg-blue-500 rounded-full p-2">
-          <VolumeHigh className="h-6 w-6 animate-pulse" />
+          <Volume2 className="h-6 w-6 animate-pulse" />
         </div>
       )}
     </div>
