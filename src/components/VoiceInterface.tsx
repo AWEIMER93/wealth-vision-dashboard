@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -20,11 +19,17 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
 
   const fetchElevenLabsKey = async () => {
     try {
+      console.log('Fetching ElevenLabs API key...');
       const { data, error } = await supabase.functions.invoke('get-secret', {
         body: { secretName: 'ELEVEN_LABS_API_KEY' }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error from Supabase function:', error);
+        throw error;
+      }
+
+      console.log('API key retrieved:', data?.secret ? 'Found key' : 'No key found');
       return data?.secret;
     } catch (error) {
       console.error('Error fetching ElevenLabs key:', error);
@@ -106,12 +111,15 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
   const startConversation = async () => {
     try {
       const elevenLabsKey = await fetchElevenLabsKey();
+      console.log('ElevenLabs key status:', elevenLabsKey ? 'Retrieved' : 'Not found');
+      
       if (!elevenLabsKey) {
-        throw new Error('ElevenLabs API key not found');
+        throw new Error('ElevenLabs API key not found. Please make sure it is set in Supabase.');
       }
 
       chatRef.current = new RealtimeChat(handleMessage);
       chatRef.current.elevenLabsKey = elevenLabsKey;
+      console.log('Initializing chat with ElevenLabs key...');
       await chatRef.current.init();
       setIsConnected(true);
       
