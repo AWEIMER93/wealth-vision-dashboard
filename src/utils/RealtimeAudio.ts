@@ -63,7 +63,6 @@ export class AudioRecorder {
 
 export class RealtimeChat {
   private dc: RTCDataChannel | null = null;
-  private audioEl: HTMLAudioElement;
   private recorder: AudioRecorder | null = null;
   public voiceId: string = "EXAVITQu4vr4xnSDxMaL"; // Default to Sarah voice
   public elevenLabsKey: string | null = null;
@@ -71,10 +70,7 @@ export class RealtimeChat {
   private lastUpdateTime: number = 0;
   private updateThreshold: number = 5000; // 5 seconds threshold between updates
 
-  constructor(private onMessage: (message: any) => void) {
-    this.audioEl = document.createElement("audio");
-    this.audioEl.autoplay = true;
-  }
+  constructor(private onMessage: (message: any) => void) {}
 
   async init() {
     try {
@@ -112,69 +108,21 @@ export class RealtimeChat {
       });
       await this.recorder.start();
 
-      // Send initial greeting
-      const userName = session?.user?.email?.split('@')[0] || 'there';
-      const greetingMessage = `Hi ${userName}, I'm ready to help with your portfolio. I can assist you with viewing your portfolio, executing trades, and providing market analysis. What would you like to do?`;
-      await this.synthesizeSpeech(greetingMessage);
-
     } catch (error) {
       console.error("Error initializing chat:", error);
       throw error;
     }
   }
 
-  private async synthesizeSpeech(text: string) {
-    if (!this.elevenLabsKey) {
-      console.error('ElevenLabs API key not set');
-      return;
-    }
-
-    try {
-      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`, {
-        method: 'POST',
-        headers: {
-          'Accept': 'audio/mpeg',
-          'Content-Type': 'application/json',
-          'xi-api-key': this.elevenLabsKey,
-        },
-        body: JSON.stringify({
-          text,
-          model_id: "eleven_multilingual_v2",
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-          }
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to generate speech');
-      }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      
-      if (this.audioEl) {
-        this.audioEl.src = url;
-        await this.audioEl.play();
-      }
-    } catch (error) {
-      console.error('Error synthesizing speech:', error);
-    }
-  }
-
   async sendMessage(text: string) {
-    await this.synthesizeSpeech(text);
+    // Just emit the message to the handler
+    this.onMessage({ type: 'response.text', text });
   }
 
   disconnect() {
     this.recorder?.stop();
     if (this.portfolioChannel) {
       supabase.removeChannel(this.portfolioChannel);
-    }
-    if (this.audioEl) {
-      this.audioEl.pause();
-      this.audioEl.src = '';
     }
   }
 }
