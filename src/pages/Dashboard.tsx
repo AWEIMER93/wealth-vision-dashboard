@@ -1,3 +1,4 @@
+
 import { useAuth } from '@/providers/AuthProvider';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -24,7 +25,6 @@ const Dashboard = () => {
     value: number;
   }[]>([]);
 
-  // Move this outside of the query
   const handleSignOut = async () => {
     try {
       await signOut();
@@ -38,7 +38,6 @@ const Dashboard = () => {
     }
   };
 
-  // Always define the query, even if there's no user
   const { data: portfolio, isLoading, error } = useQuery<Portfolio>({
     queryKey: ['portfolio', user?.id],
     queryFn: async () => {
@@ -98,7 +97,6 @@ const Dashboard = () => {
         };
       }
 
-      // Calculate portfolio totals and daily change
       const totalHolding = data.stocks?.reduce((sum, stock) => 
         sum + (stock.current_price || 0) * stock.shares, 0) || 0;
 
@@ -114,14 +112,6 @@ const Dashboard = () => {
 
       const activeStocks = data.stocks?.length || 0;
 
-      // Update performance data
-      setPerformanceData(prev => {
-        const currentTime = new Date().toLocaleTimeString();
-        const newData = [...prev, { time: currentTime, value: totalHolding }];
-        return newData.slice(-20);
-      });
-
-      // Update portfolio with calculated values
       const { error: updateError } = await supabase
         .from('portfolios')
         .update({
@@ -146,7 +136,21 @@ const Dashboard = () => {
   });
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !portfolio) return;
+
+    const updatePerformanceData = () => {
+      setPerformanceData(prev => {
+        const currentTime = new Date().toLocaleTimeString();
+        const newData = [...prev, { 
+          time: currentTime, 
+          value: portfolio.total_holding || 0 
+        }];
+        return newData.slice(-20);
+      });
+    };
+
+    // Initial update
+    updatePerformanceData();
 
     // Subscribe to portfolio changes
     const portfolioChannel = supabase
@@ -159,8 +163,7 @@ const Dashboard = () => {
           table: 'portfolios',
           filter: `user_id=eq.${user.id}`
         },
-        (payload) => {
-          console.log('Portfolio change:', payload);
+        () => {
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
         }
       )
@@ -176,8 +179,7 @@ const Dashboard = () => {
           schema: 'public',
           table: 'stocks'
         },
-        (payload) => {
-          console.log('Stock change:', payload);
+        () => {
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
         }
       )
@@ -194,10 +196,8 @@ const Dashboard = () => {
           table: 'transactions'
         },
         (payload) => {
-          console.log('Transaction:', payload);
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
           
-          // Show toast for new transactions
           if (payload.eventType === 'INSERT') {
             const { type, shares } = payload.new;
             toast({
@@ -210,7 +210,7 @@ const Dashboard = () => {
       )
       .subscribe();
 
-    // Initial stock price update
+    // Update stock prices
     const updateStockPrices = async () => {
       try {
         const { error } = await supabase.functions.invoke('update-stock-prices');
@@ -230,15 +230,17 @@ const Dashboard = () => {
     // Update stock prices immediately and every minute
     updateStockPrices();
     const updateInterval = setInterval(updateStockPrices, 60000);
+    const performanceInterval = setInterval(updatePerformanceData, 30000);
 
     // Cleanup function
     return () => {
+      clearInterval(updateInterval);
+      clearInterval(performanceInterval);
       supabase.removeChannel(portfolioChannel);
       supabase.removeChannel(stockChannel);
       supabase.removeChannel(transactionChannel);
-      clearInterval(updateInterval);
     };
-  }, [user?.id, queryClient, toast]);
+  }, [user?.id, portfolio, queryClient, toast]);
 
   if (!user) {
     return <Navigate to="/login" />;
@@ -253,11 +255,6 @@ const Dashboard = () => {
   }
 
   if (error) {
-    toast({
-      title: "Error loading portfolio",
-      description: error.message,
-      variant: "destructive",
-    });
     return (
       <div className="min-h-screen bg-[#121212] flex items-center justify-center text-white">
         <div className="text-center">
