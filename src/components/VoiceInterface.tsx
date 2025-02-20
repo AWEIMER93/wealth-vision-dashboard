@@ -20,14 +20,12 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
 
   const fetchElevenLabsKey = async () => {
     try {
-      const { data: { value }, error } = await supabase
-        .from('secrets')
-        .select('value')
-        .eq('name', 'ELEVEN_LABS_API_KEY')
-        .single();
+      const { data, error } = await supabase.functions.invoke('get-secret', {
+        body: { secretName: 'ELEVEN_LABS_API_KEY' }
+      });
 
       if (error) throw error;
-      return value;
+      return data?.secret;
     } catch (error) {
       console.error('Error fetching ElevenLabs key:', error);
       return null;
@@ -88,7 +86,7 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
           .from('stocks')
           .select('current_price')
           .eq('symbol', functionCall.symbol)
-          .single();
+          .maybeSingle();
 
         if (stockData) {
           const totalAmount = stockData.current_price * functionCall.shares;
