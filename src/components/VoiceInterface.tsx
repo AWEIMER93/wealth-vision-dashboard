@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -78,33 +79,17 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
   const handleMessage = async (event: any) => {
     console.log('Received message:', event);
     
-    if (event.type === 'response.text' && chatRef.current?.voiceId && chatRef.current?.elevenLabsKey) {
-      await playAudio(event.text);
-    }
-
-    // Handle function calls for trades
-    if (event.type === 'response.function_call_arguments.delta') {
-      const functionCall = JSON.parse(event.delta);
-      if (functionCall?.action && functionCall?.symbol && functionCall?.shares) {
-        // Get current stock price for confirmation
-        const { data: stockData } = await supabase
-          .from('stocks')
-          .select('current_price')
-          .eq('symbol', functionCall.symbol)
-          .maybeSingle();
-
-        if (stockData) {
-          const totalAmount = stockData.current_price * functionCall.shares;
-          const confirmMessage = `You are about to ${functionCall.action.toLowerCase()} ${functionCall.shares} shares of ${functionCall.symbol} at $${stockData.current_price.toLocaleString()} per share. Total amount: $${totalAmount.toLocaleString()}. Please confirm with your PIN.`;
-          await playAudio(confirmMessage);
-        }
+    if (event.type === 'response.text') {
+      if (event.text.toLowerCase().includes('view portfolio') || 
+          event.text.toLowerCase().includes('check portfolio') ||
+          event.text.toLowerCase().includes('see my portfolio')) {
+        // Only subscribe to updates when user wants to view portfolio
+        await chatRef.current?.subscribeToPortfolioUpdates();
       }
-    }
-
-    // Handle trade execution confirmation
-    if (event.type === 'response.text' && event.text.includes('Trade executed successfully')) {
-      const updatedMessage = `${event.text} Please note that it may take 1-2 minutes for your portfolio balances and stock holdings to be updated.`;
-      await playAudio(updatedMessage);
+      
+      if (chatRef.current?.voiceId && chatRef.current?.elevenLabsKey) {
+        await playAudio(event.text);
+      }
     }
   };
 
@@ -119,16 +104,13 @@ const VoiceInterface: React.FC<VoiceInterfaceProps> = ({ onSpeakingChange }) => 
 
       chatRef.current = new RealtimeChat(handleMessage);
       chatRef.current.elevenLabsKey = elevenLabsKey;
-      console.log('Initializing chat with ElevenLabs key...');
+      console.log('Initializing chat...');
       await chatRef.current.init();
       setIsConnected(true);
       
       const userName = user?.email?.split('@')[0] || 'there';
-      const greetingMessage = `Hi ${userName}, I'm ready to help with your portfolio. I can assist you with viewing your portfolio, executing trades, and providing market analysis. What would you like to do?`;
-      
-      if (chatRef.current.voiceId && chatRef.current.elevenLabsKey) {
-        await playAudio(greetingMessage);
-      }
+      const greetingMessage = `Hi ${userName}, I'm ready to help with your portfolio. Would you like to view your portfolio, execute a trade, or get market analysis?`;
+      await playAudio(greetingMessage);
       
       toast({
         title: "Voice Assistant Ready",

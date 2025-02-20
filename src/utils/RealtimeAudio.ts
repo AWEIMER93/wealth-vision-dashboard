@@ -62,67 +62,67 @@ export class AudioRecorder {
 }
 
 export class RealtimeChat {
-  private dc: RTCDataChannel | null = null;
   private recorder: AudioRecorder | null = null;
-  public voiceId: string = "EXAVITQu4vr4xnSDxMaL"; // Default to Sarah voice
+  public voiceId: string = "EXAVITQu4vr4xnSDxMaL";
   public elevenLabsKey: string | null = null;
   private portfolioChannel: any = null;
-  private lastUpdateTime: number = 0;
-  private updateThreshold: number = 5000; // 5 seconds threshold between updates
+  private isSubscribedToUpdates: boolean = false;
 
   constructor(private onMessage: (message: any) => void) {}
 
   async init() {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        // Subscribe to portfolio updates
-        this.portfolioChannel = supabase
-          .channel('portfolio-updates')
-          .on(
-            'postgres_changes',
-            {
-              event: '*',
-              schema: 'public',
-              table: 'portfolios',
-              filter: `user_id=eq.${session.user.id}`
-            },
-            (payload) => {
-              const now = Date.now();
-              if (now - this.lastUpdateTime >= this.updateThreshold) {
-                console.log('Portfolio updated:', payload);
-                this.sendMessage("My portfolio has been updated. Please get the latest data.");
-                this.lastUpdateTime = now;
-              } else {
-                console.log('Update throttled - too soon after last update');
-              }
-            }
-          )
-          .subscribe();
-      }
-
-      // Initialize audio recording
+      // Only initialize audio recording
       this.recorder = new AudioRecorder((audioData) => {
-        // Handle audio data if needed
         console.log('Audio data received:', audioData.length);
       });
       await this.recorder.start();
-
     } catch (error) {
       console.error("Error initializing chat:", error);
       throw error;
     }
   }
 
+  async subscribeToPortfolioUpdates() {
+    if (this.isSubscribedToUpdates) return;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+
+    this.portfolioChannel = supabase
+      .channel('portfolio-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'portfolios',
+          filter: `user_id=eq.${session.user.id}`
+        },
+        (payload) => {
+          console.log('Portfolio updated:', payload);
+          this.sendMessage("Your portfolio has been updated with the latest data.");
+        }
+      )
+      .subscribe();
+
+    this.isSubscribedToUpdates = true;
+  }
+
+  async unsubscribeFromUpdates() {
+    if (this.portfolioChannel) {
+      await supabase.removeChannel(this.portfolioChannel);
+      this.portfolioChannel = null;
+      this.isSubscribedToUpdates = false;
+    }
+  }
+
   async sendMessage(text: string) {
-    // Just emit the message to the handler
     this.onMessage({ type: 'response.text', text });
   }
 
   disconnect() {
     this.recorder?.stop();
-    if (this.portfolioChannel) {
-      supabase.removeChannel(this.portfolioChannel);
-    }
+    this.unsubscribeFromUpdates();
   }
 }
