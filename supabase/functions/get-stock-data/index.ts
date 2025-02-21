@@ -14,8 +14,10 @@ serve(async (req) => {
 
   try {
     const { symbol } = await req.json();
+    console.log('Received request for symbol:', symbol);
 
     if (!symbol) {
+      console.error('No symbol provided');
       return new Response(
         JSON.stringify({ error: 'Stock symbol is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -23,30 +25,28 @@ serve(async (req) => {
     }
 
     const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
-    
     if (!FINNHUB_API_KEY) {
+      console.error('Finnhub API key not found');
       throw new Error('Finnhub API key not configured');
     }
 
     const cleanSymbol = symbol.toUpperCase().trim();
-    console.log(`Processing request for symbol: ${cleanSymbol}`);
+    const url = `https://finnhub.io/api/v1/quote?symbol=${cleanSymbol}&token=${FINNHUB_API_KEY}`;
+    console.log('Fetching from Finnhub:', url);
 
-    // Get quote data
-    const quoteUrl = `https://finnhub.io/api/v1/quote?symbol=${cleanSymbol}&token=${FINNHUB_API_KEY}`;
-    console.log(`Fetching quote from: ${quoteUrl}`);
-    
-    const quoteResponse = await fetch(quoteUrl);
-    const quoteData = await quoteResponse.json();
-    console.log('Raw quote data received:', quoteData);
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error('Finnhub API error:', response.status, await response.text());
+      throw new Error('Failed to fetch from Finnhub API');
+    }
 
-    // Check for valid price data
-    if (quoteData.c === null || quoteData.c === undefined || quoteData.c === 0) {
-      console.log(`Invalid price data for symbol: ${cleanSymbol}`, quoteData);
+    const data = await response.json();
+    console.log('Finnhub response:', data);
+
+    if (data.c === null || data.c === undefined) {
+      console.error('No price data available for symbol:', cleanSymbol);
       return new Response(
-        JSON.stringify({ 
-          error: `Could not get valid price data for ${cleanSymbol}. Please verify the stock symbol.`,
-          debug: quoteData 
-        }),
+        JSON.stringify({ error: `No price data available for ${cleanSymbol}` }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -54,25 +54,22 @@ serve(async (req) => {
     const stockData = {
       symbol: cleanSymbol,
       name: cleanSymbol,
-      price: quoteData.c,
-      percentChange: quoteData.pc > 0 ? ((quoteData.c - quoteData.pc) / quoteData.pc) * 100 : 0,
-      volume: quoteData.v || 0,
+      price: data.c,
+      percentChange: ((data.c - data.pc) / data.pc) * 100,
+      volume: data.v || 0,
       marketCap: 0
     };
 
-    console.log('Processed stock data:', stockData);
+    console.log('Returning stock data:', stockData);
     return new Response(
       JSON.stringify(stockData),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
-    console.error('Error processing request:', error);
+    console.error('Function error:', error);
     return new Response(
-      JSON.stringify({ 
-        error: 'Failed to fetch stock data. Please try again.',
-        details: error.message
-      }),
+      JSON.stringify({ error: error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

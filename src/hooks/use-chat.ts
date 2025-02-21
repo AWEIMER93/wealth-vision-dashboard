@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -40,18 +39,22 @@ const formatNumber = (num: number): string => {
 
 // Helper function to extract stock symbol from message
 const extractStockSymbol = (message: string): string | null => {
-  // Match common stock message patterns
-  const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z.]+)/i);
-  const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z.]+)/i);
+  // First try to match exact stock symbols
+  const symbolMatch = message.match(/\b[A-Z]{1,5}\b/);
+  if (symbolMatch) {
+    return symbolMatch[0];
+  }
+  
+  // Then try to match buy/sell patterns
+  const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
+  const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
   
   if (buyMatch || sellMatch) {
     const match = buyMatch || sellMatch;
-    return match![2].toUpperCase().trim();
+    return match![2].toUpperCase();
   }
   
-  // General symbol pattern (fallback)
-  const symbolMatch = message.match(/\b[A-Za-z.]{1,5}\b/);
-  return symbolMatch ? symbolMatch[0].toUpperCase().trim() : null;
+  return null;
 };
 
 export const useChat = () => {
@@ -68,26 +71,27 @@ export const useChat = () => {
 
   const getStockData = async (symbol: string) => {
     try {
-      console.log('Fetching stock data for:', symbol);
-      const { data, error } = await supabase.functions.invoke('get-stock-data', {
-        body: { symbol: symbol.toUpperCase() }
+      console.log('Requesting stock data for:', symbol);
+      const result = await supabase.functions.invoke('get-stock-data', {
+        body: { symbol }
       });
-
-      if (error) {
-        console.error('Error from get-stock-data:', error);
-        throw error;
-      }
       
-      if (!data) {
-        console.error('No data returned from get-stock-data');
-        throw new Error('No stock data returned');
+      console.log('Stock data response:', result);
+
+      if (result.error) {
+        console.error('Stock data error:', result.error);
+        throw new Error(result.error.message);
       }
 
-      console.log('Stock data received:', data);
-      return data;
+      if (!result.data) {
+        console.error('No stock data received');
+        throw new Error('No stock data available');
+      }
+
+      return result.data;
     } catch (error) {
-      console.error('Error in getStockData:', error);
-      throw new Error(`Could not fetch data for stock symbol ${symbol}`);
+      console.error('getStockData error:', error);
+      throw error;
     }
   };
 
@@ -289,6 +293,9 @@ export const useChat = () => {
 
       setIsLoading(true);
 
+      // Add user message to chat immediately
+      setMessages(prev => [...prev, { role: 'user', content }]);
+
       // First check if this is a trade confirmation
       const tradeConfirmation = await processTradeConfirmation(content);
       if (tradeConfirmation) {
@@ -300,44 +307,49 @@ export const useChat = () => {
         return;
       }
 
-      // Extract stock symbol if present
+      // Extract stock symbol and try to get stock data
       const stockSymbol = extractStockSymbol(content);
       console.log('Extracted stock symbol:', stockSymbol);
 
-      // Add user message to chat
-      setMessages(prev => [...prev, { role: 'user', content }]);
-
-      let contextUpdate = {};
-      let stockData;
-      
+      let stockData = null;
       if (stockSymbol) {
         try {
-          console.log('Fetching stock data for symbol:', stockSymbol);
           stockData = await getStockData(stockSymbol);
-          console.log('Stock data received:', stockData);
-          contextUpdate = { stockData };
+          console.log('Received stock data:', stockData);
+          
+          // If we got stock data, add it to the chat
+          const priceMessage = `Current price for ${stockSymbol} is ${formatCurrency(stockData.price)}. Would you like to trade this stock? Please confirm your trade intention (e.g., "buy 10 shares of ${stockSymbol}").`;
+          
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: priceMessage
+          }]);
+          return;
         } catch (error) {
-          console.error('Error fetching stock data:', error);
-          throw error;
+          console.error('Failed to get stock data:', error);
+          const errorMessage = `I couldn't get the current price for ${stockSymbol}. Please verify the stock symbol and try again.`;
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: errorMessage
+          }]);
+          return;
         }
       }
 
-      // Call the edge function
+      // If no stock symbol or after showing stock price, proceed with chat
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
           message: content,
           userId: user.id,
           context: {
             ...context,
-            ...contextUpdate,
             stockData,
-            previousMessages: messages.slice(-2) // Send last 2 messages for context
+            previousMessages: messages.slice(-2)
           }
         },
       });
 
       if (error) {
-        console.error('Chat function error:', error);
         throw error;
       }
 
@@ -345,12 +357,9 @@ export const useChat = () => {
         throw new Error('No response from chat function');
       }
 
-      let formattedReply = formatResponse(data.reply);
-
-      // Add assistant's response to chat
       setMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: formattedReply
+        content: formatResponse(data.reply)
       }]);
 
     } catch (error: any) {
@@ -361,7 +370,6 @@ export const useChat = () => {
         variant: "destructive",
       });
       
-      // Add error message to chat
       setMessages(prev => [...prev, { 
         role: 'assistant', 
         content: "I'm sorry, I encountered an error. Please try again."
