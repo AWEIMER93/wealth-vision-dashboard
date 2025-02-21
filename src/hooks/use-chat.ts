@@ -325,9 +325,9 @@ export const useChat = () => {
         return;
       }
 
-      // Check for stock symbol input after asking for stock
+      // Check if last assistant message was asking for stock symbol
       const lastMessage = messages[messages.length - 1];
-      if (lastMessage?.role === 'user' && 
+      if (lastMessage?.role === 'assistant' && 
           (lastMessage.content.includes("Which stock do you want to buy?") ||
            lastMessage.content.includes("Which stock do you want to sell?"))) {
         const type = lastMessage.content.includes("buy") ? "buy" : "sell";
@@ -340,7 +340,7 @@ export const useChat = () => {
 
       // Check if user is specifying number of shares
       if (lastMessage?.role === 'assistant' && 
-          lastMessage.content.includes("How many shares")) {
+          lastMessage.content.includes("How many shares of")) {
         const match = lastMessage.content.match(/shares of ([A-Z]+) do you want to (buy|sell)/i);
         if (match && !isNaN(Number(content))) {
           const [_, symbol, type] = match;
@@ -370,6 +370,15 @@ export const useChat = () => {
       }
 
       // For other messages, proceed with normal chat flow
+      if (content.toLowerCase().includes('execute trade') || 
+          content.toLowerCase().includes('i want to trade')) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: "I can help you trade any US stock! Just tell me what you want to do using natural language. For example: - \"Buy 10 shares of AAPL\" - \"Sell 5 shares of TSLA\" You can use any valid US stock symbol."
+        }]);
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
           message: content,

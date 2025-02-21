@@ -57,11 +57,11 @@ export const ChatBot = () => {
 
   const handleTradeType = (type: 'buy' | 'sell') => {
     setShowTradeButtons(false);
-    if (type === 'buy') {
-      sendMessage("Which stock do you want to buy?");
-    } else {
-      sendMessage("Which stock do you want to sell?");
-    }
+    // Add assistant message first
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: `Which stock do you want to ${type}?`
+    }]);
   };
 
   const handleMenuReturn = () => {
