@@ -325,64 +325,51 @@ export const useChat = () => {
         return;
       }
 
-      // Check for trade details first
-      const tradeDetails = extractTradeDetails(content);
-      if (tradeDetails) {
-        try {
-          const stockData = await getStockData(tradeDetails.symbol);
-          const totalCost = stockData.price * tradeDetails.shares;
-          
-          const tradeMessage = `Current price for ${tradeDetails.symbol} is ${formatCurrency(stockData.price)}. ` +
-            `Total cost for ${tradeDetails.shares} shares will be ${formatCurrency(totalCost)}. ` +
-            `Please enter your PIN (1234) to confirm this ${tradeDetails.type.toLowerCase()} order.`;
-          
-          setMessages(prev => [...prev, { 
-            role: 'assistant', 
-            content: tradeMessage
-          }]);
-          return;
-        } catch (error) {
-          console.error('Failed to get stock data:', error);
-          setMessages(prev => [...prev, { 
-            role: 'assistant', 
-            content: `I couldn't get the current price for ${tradeDetails.symbol}. Please try again.`
-          }]);
-          return;
-        }
+      // Check for stock symbol input after asking for stock
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage?.role === 'user' && 
+          (lastMessage.content.includes("Which stock do you want to buy?") ||
+           lastMessage.content.includes("Which stock do you want to sell?"))) {
+        const type = lastMessage.content.includes("buy") ? "buy" : "sell";
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: `How many shares of ${content.toUpperCase()} do you want to ${type}?`
+        }]);
+        return;
       }
 
-      // Then check for price queries
-      const stockSymbol = extractStockSymbol(content);
-      if (stockSymbol) {
-        try {
-          const stockData = await getStockData(stockSymbol);
-          if (stockData.price === 0) {
+      // Check if user is specifying number of shares
+      if (lastMessage?.role === 'assistant' && 
+          lastMessage.content.includes("How many shares")) {
+        const match = lastMessage.content.match(/shares of ([A-Z]+) do you want to (buy|sell)/i);
+        if (match && !isNaN(Number(content))) {
+          const [_, symbol, type] = match;
+          try {
+            const stockData = await getStockData(symbol);
+            const shares = Number(content);
+            const totalCost = stockData.price * shares;
+            
+            const tradeMessage = `Current price for ${symbol} is ${formatCurrency(stockData.price)}. ` +
+              `Total cost for ${shares} shares will be ${formatCurrency(totalCost)}. ` +
+              `Please enter your PIN to confirm this ${type} order.`;
+            
             setMessages(prev => [...prev, { 
               role: 'assistant', 
-              content: `I couldn't find a valid stock symbol "${stockSymbol}". Please verify the stock symbol and try again.`
+              content: tradeMessage
+            }]);
+            return;
+          } catch (error) {
+            console.error('Failed to get stock data:', error);
+            setMessages(prev => [...prev, { 
+              role: 'assistant', 
+              content: `I couldn't get the current price for ${symbol}. Please try again.`
             }]);
             return;
           }
-          
-          const priceMessage = `Current price for ${stockSymbol} is ${formatCurrency(stockData.price)}. To trade this stock, please specify quantity (e.g., "buy 10 shares of ${stockSymbol}").`;
-          
-          setMessages(prev => [...prev, { 
-            role: 'assistant', 
-            content: priceMessage
-          }]);
-          return;
-        } catch (error) {
-          console.error('Failed to get stock data:', error);
-          const errorMessage = `I couldn't get the current price for ${stockSymbol}. Please verify the stock symbol and try again.`;
-          setMessages(prev => [...prev, { 
-            role: 'assistant', 
-            content: errorMessage
-          }]);
-          return;
         }
       }
 
-      // If no trade or stock query, proceed with chat
+      // For other messages, proceed with normal chat flow
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
           message: content,
@@ -394,9 +381,7 @@ export const useChat = () => {
         },
       });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       if (!data?.reply) {
         throw new Error('No response from chat function');

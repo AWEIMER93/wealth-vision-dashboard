@@ -37,14 +37,11 @@ export const ChatBot = () => {
   }, [messages]);
 
   useEffect(() => {
-    // Show trade buttons when the last message is from assistant and contains trade instructions
+    // Show trade buttons when user wants to execute a trade
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage?.role === 'assistant' && 
-        lastMessage.content.toLowerCase().includes('tell me what you want to do')) {
+    if (lastMessage?.role === 'assistant' && lastMessage.content.toLowerCase().includes('just tell me what you want to do')) {
       setShowTradeButtons(true);
-    } else if (lastMessage?.role === 'user' && 
-               (lastMessage.content.toLowerCase().includes('buy') || 
-                lastMessage.content.toLowerCase().includes('sell'))) {
+    } else {
       setShowTradeButtons(false);
     }
 
@@ -60,7 +57,11 @@ export const ChatBot = () => {
 
   const handleTradeType = (type: 'buy' | 'sell') => {
     setShowTradeButtons(false);
-    sendMessage(`I want to ${type} shares`);
+    if (type === 'buy') {
+      sendMessage("Which stock do you want to buy?");
+    } else {
+      sendMessage("Which stock do you want to sell?");
+    }
   };
 
   const handleMenuReturn = () => {
@@ -133,14 +134,14 @@ export const ChatBot = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <Button
                       variant="default"
-                      className="bg-[#9b87f5] hover:bg-[#8b77e5] text-white"
+                      className="bg-[#4B7BF5] hover:bg-[#3D6DE6] text-white py-6 text-base font-semibold"
                       onClick={() => handleTradeType('buy')}
                     >
                       Buy Shares
                     </Button>
                     <Button
                       variant="default"
-                      className="bg-[#9b87f5] hover:bg-[#8b77e5] text-white"
+                      className="bg-[#4B7BF5] hover:bg-[#3D6DE6] text-white py-6 text-base font-semibold"
                       onClick={() => handleTradeType('sell')}
                     >
                       Sell Shares
