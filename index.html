@@ -26,6 +26,58 @@
         }
       };
 
+      function initVapi() {
+        if (window.location.pathname === '/dashboard') {
+          if (!vapiInstance) {
+            vapiInstance = window.vapiSDK.run({
+              apiKey: apiKey,
+              assistant: assistant,
+              config: buttonConfig,
+              callbacks: {
+                onMessage: async (message) => {
+                  console.log('Assistant:', message);
+                },
+                onAssistantReady: async () => {
+                  try {
+                    // Fetch user data from Supabase
+                    const { data: { session } } = await window.supabase.auth.getSession();
+                    const userId = session?.user?.id;
+                    
+                    if (userId) {
+                      const { data: portfolioData } = await window.supabase
+                        .from('portfolios')
+                        .select('*, stocks(*)')
+                        .eq('user_id', userId)
+                        .single();
+
+                      // Update assistant's context with portfolio data
+                      if (portfolioData) {
+                        vapiInstance.updateContext(`Current portfolio status:
+                          - Total Holdings: $${portfolioData.total_holding || 0}
+                          - Total Profit: ${portfolioData.total_profit || 0}%
+                          - Active Stocks: ${portfolioData.active_stocks || 0}
+                          
+                          Stocks in portfolio:
+                          ${portfolioData.stocks.map(stock => 
+                            `- ${stock.symbol}: ${stock.shares} shares @ $${stock.current_price}`
+                          ).join('\n')}
+                        `);
+                      }
+                    }
+                  } catch (error) {
+                    console.error('Error fetching portfolio data:', error);
+                  }
+                }
+              }
+            });
+          }
+        } else if (vapiInstance) {
+          vapiInstance.destroy();
+          vapiInstance = null;
+        }
+      }
+
+      // Initialize Vapi when the script loads
       (function (d, t) {
         var g = document.createElement(t),
           s = d.getElementsByTagName(t)[0];
@@ -36,11 +88,9 @@
         s.parentNode.insertBefore(g, s);
 
         g.onload = function () {
-          vapiInstance = window.vapiSDK.run({
-            apiKey: apiKey,
-            assistant: assistant,
-            config: buttonConfig,
-          });
+          initVapi();
+          // Listen for route changes
+          window.addEventListener('popstate', initVapi);
         };
       })(document, "script");
     </script>
