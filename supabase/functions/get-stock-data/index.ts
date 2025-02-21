@@ -29,38 +29,33 @@ serve(async (req) => {
     }
 
     // Get quote data
+    console.log(`Fetching quote for symbol: ${symbol}`);
     const quoteResponse = await fetch(
-      `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_API_KEY}`
+      `https://finnhub.io/api/v1/quote?symbol=${symbol.toUpperCase()}&token=${FINNHUB_API_KEY}`
     );
     const quoteData = await quoteResponse.json();
+    console.log('Quote data received:', quoteData);
 
-    // Get company profile data
-    const profileResponse = await fetch(
-      `https://finnhub.io/api/v1/stock/profile2?symbol=${symbol}&token=${FINNHUB_API_KEY}`
-    );
-    const profileData = await profileResponse.json();
-
-    // If we can't get a price, the stock is not tradeable
+    // If we can't get a price, let the user know
     if (!quoteData.c) {
+      console.log(`No price available for symbol: ${symbol}`);
       return new Response(
-        JSON.stringify({ error: `Could not get current price for ${symbol}. Please verify the stock symbol.` }),
+        JSON.stringify({ error: `No price available for ${symbol}` }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
+    // Return just the essential data needed for trading
     const stockData = {
-      symbol: symbol,
-      name: profileData.name || symbol,
+      symbol: symbol.toUpperCase(),
+      name: symbol.toUpperCase(), // Just use the symbol as name for simplicity
       price: quoteData.c,
       percentChange: ((quoteData.c - quoteData.pc) / quoteData.pc) * 100,
-      marketCap: profileData.marketCapitalization || 0,
       volume: quoteData.v || 0,
-      high: quoteData.h,
-      low: quoteData.l,
-      open: quoteData.o,
-      previousClose: quoteData.pc
+      marketCap: 0 // Set to 0 as it's not crucial for trading
     };
 
+    console.log('Returning stock data:', stockData);
     return new Response(
       JSON.stringify(stockData),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
