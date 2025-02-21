@@ -113,167 +113,159 @@ export const useChat = () => {
     }
   };
 
-  const processTradeConfirmation = async (message: string) => {
-    if (message === '1234' && messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage.role === 'assistant' && lastMessage.content.includes('PIN')) {
-        // Extract trade details from previous messages
-        const tradeMessage = messages[messages.length - 2].content;
-        const buyMatch = tradeMessage.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
-        const sellMatch = tradeMessage.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
+const processTradeConfirmation = async (message: string) => {
+  if (message === '1234' && messages.length > 0) {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role === 'assistant' && lastMessage.content.includes('PIN')) {
+      // Extract trade details from the confirmation message
+      const priceMatch = lastMessage.content.match(/Current price for ([A-Z]+) is \$[\d.]+\. Total cost for (\d+) shares/);
+      if (priceMatch) {
+        const symbol = priceMatch[1];
+        const shares = parseInt(priceMatch[2]);
+        const type = lastMessage.content.toLowerCase().includes('buy order') ? 'BUY' : 'SELL';
         
-        if (buyMatch || sellMatch) {
-          const match = buyMatch || sellMatch;
-          const type = buyMatch ? 'BUY' : 'SELL';
-          const shares = parseInt(match![1]);
-          const symbol = match![2].toUpperCase();
+        try {
+          // Get user's portfolio first
+          const { data: portfolio, error: portfolioError } = await supabase
+            .from('portfolios')
+            .select('*')
+            .eq('user_id', user!.id)
+            .single();
           
-          try {
-            // Get user's portfolio first
-            const { data: portfolio, error: portfolioError } = await supabase
+          if (portfolioError || !portfolio) {
+            throw new Error('Portfolio not found');
+          }
+
+          // Get real-time stock data
+          const stockData = await getStockData(symbol);
+          
+          if (!stockData.price) {
+            throw new Error(`Could not get current price for ${symbol}`);
+          }
+
+          // For sell orders, verify user has enough shares
+          if (type === 'SELL') {
+            const { data: userPortfolio } = await supabase
               .from('portfolios')
-              .select('*')
+              .select('*, stocks(*)')
               .eq('user_id', user!.id)
               .single();
-            
-            if (portfolioError || !portfolio) {
-              throw new Error('Portfolio not found');
+
+            const userStock = userPortfolio?.stocks?.find(s => s.symbol === symbol);
+            if (!userStock || userStock.shares < shares) {
+              throw new Error(`Insufficient shares. You only have ${userStock?.shares || 0} shares of ${symbol}`);
             }
-
-            // Get real-time stock data
-            const stockData = await getStockData(symbol);
-            
-            if (!stockData.price) {
-              throw new Error(`Could not get current price for ${symbol}`);
-            }
-
-            // For sell orders, verify user has enough shares
-            if (type === 'SELL') {
-              const { data: userPortfolio } = await supabase
-                .from('portfolios')
-                .select('*, stocks(*)')
-                .eq('user_id', user!.id)
-                .single();
-
-              const userStock = userPortfolio?.stocks?.find(s => s.symbol === symbol);
-              if (!userStock || userStock.shares < shares) {
-                throw new Error(`Insufficient shares. You only have ${userStock?.shares || 0} shares of ${symbol}`);
-              }
-            }
-
-            // Get or create stock record
-            let existingStock;
-            const { data: stockRecord, error: stockError } = await supabase
-              .from('stocks')
-              .select('*')
-              .eq('symbol', symbol)
-              .eq('portfolio_id', portfolio.id)
-              .single();
-
-            if (stockError) {
-              if (type === 'SELL') {
-                throw new Error('Cannot sell a stock that is not in your portfolio');
-              }
-              // Create new stock record for buying
-              const { data: newStock, error: createError } = await supabase
-                .from('stocks')
-                .insert({
-                  symbol,
-                  name: stockData.name || symbol,
-                  current_price: stockData.price,
-                  shares: 0,
-                  price_change: stockData.percentChange || 0,
-                  market_cap: stockData.marketCap || 0,
-                  volume: stockData.volume || 0,
-                  portfolio_id: portfolio.id
-                })
-                .select()
-                .single();
-              
-              if (createError) throw createError;
-              existingStock = newStock;
-            } else {
-              existingStock = stockRecord;
-            }
-
-            // Calculate trade amount using current stock price
-            const tradeAmount = stockData.price * shares;
-            
-            // Create transaction
-            const { error: transactionError } = await supabase
-              .from('transactions')
-              .insert({
-                type,
-                shares,
-                price_per_unit: stockData.price,
-                total_amount: tradeAmount,
-                portfolio_id: portfolio.id,
-                stock_id: existingStock.id,
-              });
-            
-            if (transactionError) throw transactionError;
-
-            // Update stock holding
-            const newShares = type === 'BUY' 
-              ? (existingStock.shares || 0) + shares 
-              : (existingStock.shares || 0) - shares;
-
-            if (newShares > 0) {
-              const { error: updateError } = await supabase
-                .from('stocks')
-                .update({ 
-                  shares: newShares,
-                  current_price: stockData.price,
-                  price_change: stockData.percentChange || 0,
-                  market_cap: stockData.marketCap || 0,
-                  volume: stockData.volume || 0
-                })
-                .eq('id', existingStock.id);
-              
-              if (updateError) throw updateError;
-            } else {
-              // Remove stock if no shares left
-              const { error: deleteError } = await supabase
-                .from('stocks')
-                .delete()
-                .eq('id', existingStock.id);
-              
-              if (deleteError) throw deleteError;
-            }
-
-            // Update portfolio total
-            const newTotal = type === 'BUY'
-              ? (portfolio.total_holding || 0) + tradeAmount
-              : (portfolio.total_holding || 0) - tradeAmount;
-
-            const { error: portfolioUpdateError } = await supabase
-              .from('portfolios')
-              .update({
-                total_holding: newTotal,
-                active_stocks: type === 'BUY' && newShares === shares
-                  ? (portfolio.active_stocks || 0) + 1 
-                  : type === 'SELL' && newShares === 0
-                  ? (portfolio.active_stocks || 0) - 1
-                  : portfolio.active_stocks
-              })
-              .eq('id', portfolio.id);
-            
-            if (portfolioUpdateError) throw portfolioUpdateError;
-
-            // Format the response with proper number formatting
-            const formattedPrice = formatCurrency(stockData.price);
-            const formattedTotal = formatCurrency(tradeAmount);
-            
-            return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at ${formattedPrice} per share. Total amount: ${formattedTotal}. Current market data: Price ${formattedPrice}, Change ${formatPercent(stockData.percentChange)}, Volume ${formatNumber(stockData.volume)}. Please allow up to 1 minute for your portfolio balances and individual stock holdings to be updated.`;
-          } catch (error: any) {
-            console.error('Trade error:', error);
-            throw new Error(`Failed to execute trade: ${error.message}`);
           }
+
+          // Get or create stock record
+          let existingStock;
+          const { data: stockRecord, error: stockError } = await supabase
+            .from('stocks')
+            .select('*')
+            .eq('symbol', symbol)
+            .eq('portfolio_id', portfolio.id)
+            .single();
+
+          if (stockError) {
+            if (type === 'SELL') {
+              throw new Error('Cannot sell a stock that is not in your portfolio');
+            }
+            // Create new stock record for buying
+            const { data: newStock, error: createError } = await supabase
+              .from('stocks')
+              .insert({
+                symbol,
+                name: stockData.name || symbol,
+                current_price: stockData.price,
+                shares: 0,
+                price_change: stockData.percentChange || 0,
+                market_cap: stockData.marketCap || 0,
+                volume: stockData.volume || 0,
+                portfolio_id: portfolio.id
+              })
+              .select()
+              .single();
+            
+            if (createError) throw createError;
+            existingStock = newStock;
+          } else {
+            existingStock = stockRecord;
+          }
+
+          // Calculate trade amount using current stock price
+          const tradeAmount = stockData.price * shares;
+          
+          // Create transaction
+          const { error: transactionError } = await supabase
+            .from('transactions')
+            .insert({
+              type,
+              shares,
+              price_per_unit: stockData.price,
+              total_amount: tradeAmount,
+              portfolio_id: portfolio.id,
+              stock_id: existingStock.id,
+            });
+          
+          if (transactionError) throw transactionError;
+
+          // Update stock holding
+          const newShares = type === 'BUY' 
+            ? (existingStock.shares || 0) + shares 
+            : (existingStock.shares || 0) - shares;
+
+          if (newShares > 0) {
+            const { error: updateError } = await supabase
+              .from('stocks')
+              .update({ 
+                shares: newShares,
+                current_price: stockData.price,
+                price_change: stockData.percentChange || 0,
+                market_cap: stockData.marketCap || 0,
+                volume: stockData.volume || 0
+              })
+              .eq('id', existingStock.id);
+            
+            if (updateError) throw updateError;
+          } else {
+            // Remove stock if no shares left
+            const { error: deleteError } = await supabase
+              .from('stocks')
+              .delete()
+              .eq('id', existingStock.id);
+            
+            if (deleteError) throw deleteError;
+          }
+
+          // Update portfolio total
+          const newTotal = type === 'BUY'
+            ? (portfolio.total_holding || 0) + tradeAmount
+            : (portfolio.total_holding || 0) - tradeAmount;
+
+          const { error: portfolioUpdateError } = await supabase
+            .from('portfolios')
+            .update({
+              total_holding: newTotal,
+              active_stocks: type === 'BUY' && newShares === shares
+                ? (portfolio.active_stocks || 0) + 1 
+                : type === 'SELL' && newShares === 0
+                ? (portfolio.active_stocks || 0) - 1
+                : portfolio.active_stocks
+            })
+            .eq('id', portfolio.id);
+          
+          if (portfolioUpdateError) throw portfolioUpdateError;
+
+          return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at ${formatCurrency(stockData.price)} per share. Total amount: ${formatCurrency(tradeAmount)}`;
+        } catch (error: any) {
+          console.error('Trade error:', error);
+          throw new Error(`Failed to execute trade: ${error.message}`);
         }
       }
     }
-    return null;
-  };
+  }
+  return null;
+};
 
   const formatResponse = (text: string): string => {
     // Format currency values ($X.XX or $X)

@@ -39,7 +39,7 @@ export const ChatBot = () => {
   useEffect(() => {
     // Show trade buttons when user wants to execute a trade
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage?.role === 'assistant' && lastMessage.content.toLowerCase().includes('just tell me what you want to do')) {
+    if (lastMessage?.role === 'user' && lastMessage.content.toLowerCase().includes('execute trade')) {
       setShowTradeButtons(true);
     } else {
       setShowTradeButtons(false);
@@ -134,14 +134,14 @@ export const ChatBot = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <Button
                       variant="outline"
-                      className="bg-black/40 border-white/10 hover:bg-white/5 text-white py-6 text-base font-semibold"
+                      className="bg-black/40 border-white/10 hover:bg-white/5 text-white text-sm h-10"
                       onClick={() => handleTradeType('buy')}
                     >
                       Buy Shares
                     </Button>
                     <Button
                       variant="outline"
-                      className="bg-black/40 border-white/10 hover:bg-white/5 text-white py-6 text-base font-semibold"
+                      className="bg-black/40 border-white/10 hover:bg-white/5 text-white text-sm h-10"
                       onClick={() => handleTradeType('sell')}
                     >
                       Sell Shares
