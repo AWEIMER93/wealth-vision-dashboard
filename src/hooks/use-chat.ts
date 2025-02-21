@@ -13,6 +13,22 @@ interface ConversationContext {
   awaitingRisk?: boolean;
 }
 
+// Helper function to extract trade details
+const extractTradeDetails = (message: string): { type: 'BUY' | 'SELL' | null, shares: number, symbol: string } | null => {
+  const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Z]{1,5})/i);
+  const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Z]{1,5})/i);
+  
+  if (buyMatch || sellMatch) {
+    const match = buyMatch || sellMatch;
+    return {
+      type: buyMatch ? 'BUY' : 'SELL',
+      shares: parseInt(match![1]),
+      symbol: match![2].toUpperCase()
+    };
+  }
+  return null;
+};
+
 // Helper function to format currency
 const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-US', {
@@ -309,28 +325,37 @@ export const useChat = () => {
         return;
       }
 
-      // Check if the message contains trade-related keywords
-      const hasBuyKeyword = /\bbuy\b/i.test(content);
-      const hasSellKeyword = /\bsell\b/i.test(content);
-      const hasTradeKeyword = /\btrade\b/i.test(content);
-      
-      if (hasTradeKeyword && !hasBuyKeyword && !hasSellKeyword) {
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: "To execute a trade, please specify whether you want to buy or sell, and include the stock symbol. For example: 'buy 10 shares of AAPL' or 'sell 5 shares of MSFT'."
-        }]);
-        return;
+      // Check for trade details first
+      const tradeDetails = extractTradeDetails(content);
+      if (tradeDetails) {
+        try {
+          const stockData = await getStockData(tradeDetails.symbol);
+          const totalCost = stockData.price * tradeDetails.shares;
+          
+          const tradeMessage = `Current price for ${tradeDetails.symbol} is ${formatCurrency(stockData.price)}. ` +
+            `Total cost for ${tradeDetails.shares} shares will be ${formatCurrency(totalCost)}. ` +
+            `Please enter your PIN (1234) to confirm this ${tradeDetails.type.toLowerCase()} order.`;
+          
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: tradeMessage
+          }]);
+          return;
+        } catch (error) {
+          console.error('Failed to get stock data:', error);
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `I couldn't get the current price for ${tradeDetails.symbol}. Please try again.`
+          }]);
+          return;
+        }
       }
 
-      // Extract stock symbol and try to get stock data
+      // Then check for price queries
       const stockSymbol = extractStockSymbol(content);
-      console.log('Extracted stock symbol:', stockSymbol);
-
       if (stockSymbol) {
         try {
           const stockData = await getStockData(stockSymbol);
-          console.log('Received stock data:', stockData);
-          
           if (stockData.price === 0) {
             setMessages(prev => [...prev, { 
               role: 'assistant', 
@@ -339,8 +364,7 @@ export const useChat = () => {
             return;
           }
           
-          // If we got stock data, add it to the chat
-          const priceMessage = `Current price for ${stockSymbol} is ${formatCurrency(stockData.price)}. Would you like to trade this stock? Please specify your trade intention (e.g., "buy 10 shares of ${stockSymbol}").`;
+          const priceMessage = `Current price for ${stockSymbol} is ${formatCurrency(stockData.price)}. To trade this stock, please specify quantity (e.g., "buy 10 shares of ${stockSymbol}").`;
           
           setMessages(prev => [...prev, { 
             role: 'assistant', 
@@ -358,7 +382,7 @@ export const useChat = () => {
         }
       }
 
-      // If no stock symbol or after showing stock price, proceed with chat
+      // If no trade or stock query, proceed with chat
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
           message: content,
