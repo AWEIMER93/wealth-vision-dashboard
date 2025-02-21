@@ -26,7 +26,7 @@ export const ChatBot = () => {
   const [showTradeButtons, setShowTradeButtons] = useState(false);
   const [isEnteringPin, setIsEnteringPin] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { messages, isLoading, sendMessage, clearMessages } = useChat();
+  const { messages, setMessages, isLoading, sendMessage, clearMessages } = useChat();
   const { user } = useAuth();
   
   useEffect(() => {

@@ -426,6 +426,7 @@ export const useChat = () => {
 
   return {
     messages,
+    setMessages,
     isLoading,
     sendMessage,
     clearMessages,
