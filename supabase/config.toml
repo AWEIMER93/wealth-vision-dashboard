@@ -7,6 +7,8 @@ verify_jwt = false
 [functions.portfolio-chat]
 verify_jwt = true
 
-[functions.get-secret]
+[functions.get-stock-data]
 verify_jwt = false
 
+[functions.get-secret]
+verify_jwt = false
