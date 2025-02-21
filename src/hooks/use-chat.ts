@@ -176,12 +176,15 @@ export const useChat = () => {
               if (type === 'SELL') {
                 throw new Error('Cannot sell a stock that is not in your portfolio');
               }
-              // Create new stock record for buying
+              // Create new stock record for buying with both company name and symbol
+              const companyName = stockData.companyName || stockData.description || 'Unknown Company';
+              const stockName = `${companyName} (${symbol})`;
+              
               const { data: newStock, error: createError } = await supabase
                 .from('stocks')
                 .insert({
                   symbol,
-                  name: stockData.companyName || stockData.description || symbol,  // Use company name from API
+                  name: stockName,  // Combine company name and symbol
                   current_price: stockData.price,
                   shares: 0,
                   price_change: stockData.percentChange || 0,
@@ -191,7 +194,7 @@ export const useChat = () => {
                 })
                 .select()
                 .single();
-              
+            
               if (createError) throw createError;
               existingStock = newStock;
             } else {
