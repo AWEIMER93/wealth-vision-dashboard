@@ -59,9 +59,9 @@ export const VoiceAgent = () => {
         .eq('user_id', user?.id)
         .single();
 
-      // Start a new call with the assistant
-      const call = await vapi.call({
-        assistant: "your-assistant-id", // Replace with your assistant ID
+      // Start recording using the correct SDK method
+      await vapi.start({
+        assistantId: "your-assistant-id", // Replace with your assistant ID
         prompt: {
           messages: [{
             role: "system",
@@ -82,12 +82,12 @@ export const VoiceAgent = () => {
         }
       });
 
-      // Process assistant response
-      call.addListener('message', (message) => {
+      // Add event listeners
+      vapi.addListener('message', (message) => {
         console.log('Assistant:', message);
       });
 
-      call.addListener('error', (error) => {
+      vapi.addListener('error', (error) => {
         console.error('Vapi error:', error);
         toast({
           title: "Error",
@@ -98,7 +98,7 @@ export const VoiceAgent = () => {
         setIsProcessing(false);
       });
 
-      call.addListener('end', () => {
+      vapi.addListener('end', () => {
         setIsRecording(false);
         setIsProcessing(false);
       });
