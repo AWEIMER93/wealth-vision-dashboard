@@ -2,7 +2,6 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/providers/AuthProvider";
-import { useQueryClient } from "@tanstack/react-query";
 
 interface Message {
   role: 'assistant' | 'user';
@@ -82,7 +81,6 @@ export const useChat = () => {
   const [context, setContext] = useState<ConversationContext>({});
   const { toast } = useToast();
   const { user } = useAuth();
-  const queryClient = useQueryClient();
 
   const clearMessages = () => {
     setMessages([]);
@@ -116,28 +114,29 @@ export const useChat = () => {
   };
 
   const processTradeConfirmation = async (message: string) => {
-    try {
-      if (message === '1234' && messages.length > 0) {
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage.role === 'assistant' && lastMessage.content.includes('PIN')) {
-          const priceMatch = lastMessage.content.match(/Current price for ([A-Z]+) is \$([\d.]+)\. Total cost for (\d+) shares/);
-          if (priceMatch) {
-            const [_, symbol, priceStr, sharesStr] = priceMatch;
-            const shares = parseInt(sharesStr);
-            const price = parseFloat(priceStr);
-            const type = lastMessage.content.toLowerCase().includes('buy') ? 'BUY' : 'SELL';
-            
-            console.log('Processing trade:', { symbol, shares, price, type });
-
-            // Get user's portfolio
+    if (message === '1234' && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.role === 'assistant' && lastMessage.content.includes('PIN')) {
+        // Extract trade details from previous messages
+        const tradeMessage = messages[messages.length - 2].content;
+        const buyMatch = tradeMessage.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
+        const sellMatch = tradeMessage.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
+        
+        if (buyMatch || sellMatch) {
+          const match = buyMatch || sellMatch;
+          const type = buyMatch ? 'BUY' : 'SELL';
+          const shares = parseInt(match![1]);
+          const symbol = match![2].toUpperCase();
+          
+          try {
+            // Get user's portfolio first
             const { data: portfolio, error: portfolioError } = await supabase
               .from('portfolios')
               .select('*')
               .eq('user_id', user!.id)
               .single();
             
-            if (portfolioError) {
-              console.error('Portfolio error:', portfolioError);
+            if (portfolioError || !portfolio) {
               throw new Error('Portfolio not found');
             }
 
@@ -150,40 +149,39 @@ export const useChat = () => {
 
             // For sell orders, verify user has enough shares
             if (type === 'SELL') {
-              const { data: userStock } = await supabase
-                .from('stocks')
-                .select('*')
-                .eq('portfolio_id', portfolio.id)
-                .eq('symbol', symbol)
+              const { data: userPortfolio } = await supabase
+                .from('portfolios')
+                .select('*, stocks(*)')
+                .eq('user_id', user!.id)
                 .single();
 
+              const userStock = userPortfolio?.stocks?.find(s => s.symbol === symbol);
               if (!userStock || userStock.shares < shares) {
                 throw new Error(`Insufficient shares. You only have ${userStock?.shares || 0} shares of ${symbol}`);
               }
             }
 
             // Get or create stock record
-            const { data: existingStock, error: stockError } = await supabase
+            let existingStock;
+            const { data: stockRecord, error: stockError } = await supabase
               .from('stocks')
               .select('*')
-              .eq('portfolio_id', portfolio.id)
               .eq('symbol', symbol)
+              .eq('portfolio_id', portfolio.id)
               .single();
 
-            let stockId;
             if (stockError) {
               if (type === 'SELL') {
                 throw new Error('Cannot sell a stock that is not in your portfolio');
               }
-              
-              // Create new stock for buying
+              // Create new stock record for buying
               const { data: newStock, error: createError } = await supabase
                 .from('stocks')
                 .insert({
                   symbol,
                   name: stockData.name || symbol,
-                  shares: 0,
                   current_price: stockData.price,
+                  shares: 0,
                   price_change: stockData.percentChange || 0,
                   market_cap: stockData.marketCap || 0,
                   volume: stockData.volume || 0,
@@ -191,15 +189,17 @@ export const useChat = () => {
                 })
                 .select()
                 .single();
-
+              
               if (createError) throw createError;
-              stockId = newStock.id;
+              existingStock = newStock;
             } else {
-              stockId = existingStock.id;
+              existingStock = stockRecord;
             }
 
-            // Create transaction
+            // Calculate trade amount using current stock price
             const tradeAmount = stockData.price * shares;
+            
+            // Create transaction
             const { error: transactionError } = await supabase
               .from('transactions')
               .insert({
@@ -208,18 +208,18 @@ export const useChat = () => {
                 price_per_unit: stockData.price,
                 total_amount: tradeAmount,
                 portfolio_id: portfolio.id,
-                stock_id: stockId,
+                stock_id: existingStock.id,
               });
             
             if (transactionError) throw transactionError;
 
             // Update stock holding
             const newShares = type === 'BUY' 
-              ? (existingStock?.shares || 0) + shares 
-              : (existingStock?.shares || 0) - shares;
+              ? (existingStock.shares || 0) + shares 
+              : (existingStock.shares || 0) - shares;
 
             if (newShares > 0) {
-              await supabase
+              const { error: updateError } = await supabase
                 .from('stocks')
                 .update({ 
                   shares: newShares,
@@ -228,43 +228,51 @@ export const useChat = () => {
                   market_cap: stockData.marketCap || 0,
                   volume: stockData.volume || 0
                 })
-                .eq('id', stockId);
+                .eq('id', existingStock.id);
+              
+              if (updateError) throw updateError;
             } else {
-              await supabase
+              // Remove stock if no shares left
+              const { error: deleteError } = await supabase
                 .from('stocks')
                 .delete()
-                .eq('id', stockId);
+                .eq('id', existingStock.id);
+              
+              if (deleteError) throw deleteError;
             }
 
-            // Update portfolio totals
+            // Update portfolio total
+            const newTotal = type === 'BUY'
+              ? (portfolio.total_holding || 0) + tradeAmount
+              : (portfolio.total_holding || 0) - tradeAmount;
+
             const { error: portfolioUpdateError } = await supabase
               .from('portfolios')
               .update({
-                total_holding: type === 'BUY'
-                  ? (portfolio.total_holding || 0) + tradeAmount
-                  : (portfolio.total_holding || 0) - tradeAmount,
-                active_stocks: type === 'BUY' && !existingStock
-                  ? (portfolio.active_stocks || 0) + 1
+                total_holding: newTotal,
+                active_stocks: type === 'BUY' && newShares === shares
+                  ? (portfolio.active_stocks || 0) + 1 
                   : type === 'SELL' && newShares === 0
                   ? (portfolio.active_stocks || 0) - 1
                   : portfolio.active_stocks
               })
               .eq('id', portfolio.id);
-
+            
             if (portfolioUpdateError) throw portfolioUpdateError;
 
-            // Invalidate queries to refresh the UI
-            queryClient.invalidateQueries({ queryKey: ['portfolio'] });
-
-            return `Trade executed successfully! ${type.toLowerCase()}ing ${shares} shares of ${symbol} at ${formatCurrency(stockData.price)} per share. Total amount: ${formatCurrency(tradeAmount)}`;
+            // Format the response with proper number formatting
+            const formattedPrice = formatCurrency(stockData.price);
+            const formattedTotal = formatCurrency(tradeAmount);
+            
+            return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at ${formattedPrice} per share. Total amount: ${formattedTotal}. Current market data: Price ${formattedPrice}, Change ${formatPercent(stockData.percentChange)}, Volume ${formatNumber(stockData.volume)}. Please allow up to 1 minute for your portfolio balances and individual stock holdings to be updated.`;
+          } catch (error: any) {
+            console.error('Trade error:', error);
+            throw new Error(`Failed to execute trade: ${error.message}`);
           }
         }
       }
-      return null;
-    } catch (error: any) {
-      console.error('Trade error:', error);
-      throw new Error(`Failed to execute trade: ${error.message}`);
     }
+    return null;
   };
 
   const formatResponse = (text: string): string => {
@@ -303,73 +311,78 @@ export const useChat = () => {
 
       setIsLoading(true);
 
+      // Add user message to chat immediately
+      setMessages(prev => [...prev, { role: 'user', content }]);
+
       // First check if this is a trade confirmation
-      if (messages.length > 0 && messages[messages.length - 1].role === 'assistant' && 
-          messages[messages.length - 1].content.includes('PIN')) {
-        const tradeConfirmation = await processTradeConfirmation(content);
-        if (tradeConfirmation) {
-          setMessages(prev => [...prev, { role: 'assistant', content: tradeConfirmation }]);
+      const tradeConfirmation = await processTradeConfirmation(content);
+      if (tradeConfirmation) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'user', content: '****' }, // Mask PIN
+          { role: 'assistant', content: formatResponse(tradeConfirmation) }
+        ]);
+        return;
+      }
+
+      // Check for trade details first
+      const tradeDetails = extractTradeDetails(content);
+      if (tradeDetails) {
+        try {
+          const stockData = await getStockData(tradeDetails.symbol);
+          const totalCost = stockData.price * tradeDetails.shares;
+          
+          const tradeMessage = `Current price for ${tradeDetails.symbol} is ${formatCurrency(stockData.price)}. ` +
+            `Total cost for ${tradeDetails.shares} shares will be ${formatCurrency(totalCost)}. ` +
+            `Please enter your PIN (1234) to confirm this ${tradeDetails.type.toLowerCase()} order.`;
+          
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: tradeMessage
+          }]);
+          return;
+        } catch (error) {
+          console.error('Failed to get stock data:', error);
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `I couldn't get the current price for ${tradeDetails.symbol}. Please try again.`
+          }]);
           return;
         }
       }
 
-      // Add user message to chat
-      setMessages(prev => [...prev, { role: 'user', content }]);
-
-      // Check if last assistant message was asking for stock symbol
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage?.role === 'assistant' && 
-          (lastMessage.content.includes("Which stock do you want to buy?") ||
-           lastMessage.content.includes("Which stock do you want to sell?"))) {
-        const type = lastMessage.content.includes("buy") ? "buy" : "sell";
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: `How many shares of ${content.toUpperCase()} do you want to ${type}?`
-        }]);
-        return;
-      }
-
-      // Check if user is specifying number of shares
-      if (lastMessage?.role === 'assistant' && 
-          lastMessage.content.includes("How many shares of")) {
-        const match = lastMessage.content.match(/shares of ([A-Z]+) do you want to (buy|sell)/i);
-        if (match && !isNaN(Number(content))) {
-          const [_, symbol, type] = match;
-          try {
-            const stockData = await getStockData(symbol);
-            const shares = Number(content);
-            const totalCost = stockData.price * shares;
-            
-            const tradeMessage = `Current price for ${symbol} is ${formatCurrency(stockData.price)}. ` +
-              `Total cost for ${shares} shares will be ${formatCurrency(totalCost)}. ` +
-              `Please enter your PIN to confirm this ${type} order.`;
-            
+      // Then check for price queries
+      const stockSymbol = extractStockSymbol(content);
+      if (stockSymbol) {
+        try {
+          const stockData = await getStockData(stockSymbol);
+          if (stockData.price === 0) {
             setMessages(prev => [...prev, { 
               role: 'assistant', 
-              content: tradeMessage
-            }]);
-            return;
-          } catch (error) {
-            console.error('Failed to get stock data:', error);
-            setMessages(prev => [...prev, { 
-              role: 'assistant', 
-              content: `I couldn't get the current price for ${symbol}. Please try again.`
+              content: `I couldn't find a valid stock symbol "${stockSymbol}". Please verify the stock symbol and try again.`
             }]);
             return;
           }
+          
+          const priceMessage = `Current price for ${stockSymbol} is ${formatCurrency(stockData.price)}. To trade this stock, please specify quantity (e.g., "buy 10 shares of ${stockSymbol}").`;
+          
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: priceMessage
+          }]);
+          return;
+        } catch (error) {
+          console.error('Failed to get stock data:', error);
+          const errorMessage = `I couldn't get the current price for ${stockSymbol}. Please verify the stock symbol and try again.`;
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: errorMessage
+          }]);
+          return;
         }
       }
 
-      // For other messages, proceed with normal chat flow
-      if (content.toLowerCase().includes('execute trade') || 
-          content.toLowerCase().includes('i want to trade')) {
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: "Please select how you would like to trade:"
-        }]);
-        return;
-      }
-
+      // If no trade or stock query, proceed with chat
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
           message: content,
@@ -381,7 +394,9 @@ export const useChat = () => {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       if (!data?.reply) {
         throw new Error('No response from chat function');
@@ -411,7 +426,6 @@ export const useChat = () => {
 
   return {
     messages,
-    setMessages,
     isLoading,
     sendMessage,
     clearMessages,

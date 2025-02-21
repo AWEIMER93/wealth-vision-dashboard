@@ -8,6 +8,7 @@ import { ChatInput } from "./ChatInput";
 import { useChat } from "@/hooks/use-chat";
 import { useAuth } from "@/providers/AuthProvider";
 
+// Quick action types
 interface QuickAction {
   label: string;
   action: string;
@@ -23,10 +24,8 @@ const quickActions: QuickAction[] = [
 export const ChatBot = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [showMenu, setShowMenu] = useState(true);
-  const [showTradeButtons, setShowTradeButtons] = useState(false);
-  const [isEnteringPin, setIsEnteringPin] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { messages, setMessages, isLoading, sendMessage, clearMessages } = useChat();
+  const { messages, isLoading, sendMessage, clearMessages } = useChat();
   const { user } = useAuth();
   
   useEffect(() => {
@@ -35,32 +34,10 @@ export const ChatBot = () => {
     };
     scrollToBottom();
   }, [messages]);
-
-  useEffect(() => {
-    // Show trade buttons when user wants to execute a trade
-    const lastMessage = messages[messages.length - 1];
-    if (lastMessage?.role === 'user' && lastMessage.content.toLowerCase().includes('execute trade')) {
-      setShowTradeButtons(true);
-    } else {
-      setShowTradeButtons(false);
-    }
-
-    // Check if we're waiting for PIN input
-    setIsEnteringPin(lastMessage?.role === 'assistant' && 
-                    lastMessage.content.toLowerCase().includes('enter your pin'));
-  }, [messages]);
   
   const handleQuickAction = (action: string) => {
     setShowMenu(false);
     sendMessage(action);
-  };
-
-  const handleTradeType = (type: 'buy' | 'sell') => {
-    setShowTradeButtons(false);
-    setMessages(prev => [...prev, {
-      role: 'assistant',
-      content: `Which stock do you want to ${type}?`
-    }]);
   };
 
   const handleMenuReturn = () => {
@@ -129,24 +106,6 @@ export const ChatBot = () => {
                     content={message.content}
                   />
                 ))}
-                {showTradeButtons && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      variant="outline"
-                      className="bg-black/40 border-white/10 hover:bg-white/5 text-white text-sm h-10"
-                      onClick={() => handleTradeType('buy')}
-                    >
-                      Buy Shares
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="bg-black/40 border-white/10 hover:bg-white/5 text-white text-sm h-10"
-                      onClick={() => handleTradeType('sell')}
-                    >
-                      Sell Shares
-                    </Button>
-                  </div>
-                )}
                 <div ref={messagesEndRef} />
               </>
             )}
@@ -156,15 +115,9 @@ export const ChatBot = () => {
             <ChatInput 
               onSend={(content) => {
                 setShowMenu(false);
-                if (isEnteringPin) {
-                  sendMessage(content);
-                } else {
-                  sendMessage(content);
-                }
+                sendMessage(content);
               }} 
               disabled={isLoading}
-              type={isEnteringPin ? 'password' : 'text'}
-              placeholder={isEnteringPin ? "Enter your PIN..." : "Type a message..."}
             />
           </div>
         </Card>
@@ -172,7 +125,7 @@ export const ChatBot = () => {
         <Button
           onClick={() => setIsOpen(true)}
           size="icon"
-          className="h-12 w-12 rounded-full bg-black/40 border-white/10 hover:bg-white/5 text-white shadow-lg hover:shadow-xl transition-all"
+          className="h-12 w-12 rounded-full bg-blue-500 hover:bg-blue-600 text-white shadow-lg hover:shadow-xl transition-all"
         >
           <MessageCircle className="h-6 w-6" />
         </Button>
