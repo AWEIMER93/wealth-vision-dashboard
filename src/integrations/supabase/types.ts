@@ -54,7 +54,7 @@ export type Database = {
           id: string
           market_cap: number | null
           name: string
-          portfolio_id: string
+          portfolio_id: string | null
           price_change: number | null
           shares: number
           symbol: string
@@ -67,7 +67,7 @@ export type Database = {
           id?: string
           market_cap?: number | null
           name: string
-          portfolio_id: string
+          portfolio_id?: string | null
           price_change?: number | null
           shares: number
           symbol: string
@@ -80,7 +80,7 @@ export type Database = {
           id?: string
           market_cap?: number | null
           name?: string
-          portfolio_id?: string
+          portfolio_id?: string | null
           price_change?: number | null
           shares?: number
           symbol?: string
