@@ -61,7 +61,7 @@ export const VoiceAgent = () => {
 
       // Start recording using the correct SDK method
       await vapi.start({
-        assistant: "9b7aeabf-7e65-401a-a820-ced369981fb9", // Your assistant ID
+        assistantId: "9b7aeabf-7e65-401a-a820-ced369981fb9", // Your assistant ID
         prompt: {
           messages: [{
             role: "system",
