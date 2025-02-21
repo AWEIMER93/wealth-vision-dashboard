@@ -28,43 +28,51 @@ serve(async (req) => {
       throw new Error('Finnhub API key not configured');
     }
 
-    // Get quote data
-    console.log(`Fetching quote for symbol: ${symbol}`);
-    const quoteResponse = await fetch(
-      `https://finnhub.io/api/v1/quote?symbol=${symbol.toUpperCase()}&token=${FINNHUB_API_KEY}`
-    );
-    const quoteData = await quoteResponse.json();
-    console.log('Quote data received:', quoteData);
+    const cleanSymbol = symbol.toUpperCase().trim();
+    console.log(`Processing request for symbol: ${cleanSymbol}`);
 
-    // If we can't get a price, let the user know
-    if (!quoteData.c) {
-      console.log(`No price available for symbol: ${symbol}`);
+    // Get quote data
+    const quoteUrl = `https://finnhub.io/api/v1/quote?symbol=${cleanSymbol}&token=${FINNHUB_API_KEY}`;
+    console.log(`Fetching quote from: ${quoteUrl}`);
+    
+    const quoteResponse = await fetch(quoteUrl);
+    const quoteData = await quoteResponse.json();
+    console.log('Raw quote data received:', quoteData);
+
+    // Check for valid price data
+    if (quoteData.c === null || quoteData.c === undefined || quoteData.c === 0) {
+      console.log(`Invalid price data for symbol: ${cleanSymbol}`, quoteData);
       return new Response(
-        JSON.stringify({ error: `No price available for ${symbol}` }),
+        JSON.stringify({ 
+          error: `Could not get valid price data for ${cleanSymbol}. Please verify the stock symbol.`,
+          debug: quoteData 
+        }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Return just the essential data needed for trading
     const stockData = {
-      symbol: symbol.toUpperCase(),
-      name: symbol.toUpperCase(), // Just use the symbol as name for simplicity
+      symbol: cleanSymbol,
+      name: cleanSymbol,
       price: quoteData.c,
-      percentChange: ((quoteData.c - quoteData.pc) / quoteData.pc) * 100,
+      percentChange: quoteData.pc > 0 ? ((quoteData.c - quoteData.pc) / quoteData.pc) * 100 : 0,
       volume: quoteData.v || 0,
-      marketCap: 0 // Set to 0 as it's not crucial for trading
+      marketCap: 0
     };
 
-    console.log('Returning stock data:', stockData);
+    console.log('Processed stock data:', stockData);
     return new Response(
       JSON.stringify(stockData),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error processing request:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        error: 'Failed to fetch stock data. Please try again.',
+        details: error.message
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

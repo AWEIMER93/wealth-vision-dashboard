@@ -39,8 +39,18 @@ const formatNumber = (num: number): string => {
 
 // Helper function to extract stock symbol from message
 const extractStockSymbol = (message: string): string | null => {
-  const match = message.match(/\b[A-Z]{1,5}\b/);
-  return match ? match[0] : null;
+  // Match common stock message patterns
+  const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z.]+)/i);
+  const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z.]+)/i);
+  
+  if (buyMatch || sellMatch) {
+    const match = buyMatch || sellMatch;
+    return match![2].toUpperCase().trim();
+  }
+  
+  // General symbol pattern (fallback)
+  const symbolMatch = message.match(/\b[A-Za-z.]{1,5}\b/);
+  return symbolMatch ? symbolMatch[0].toUpperCase().trim() : null;
 };
 
 export const useChat = () => {
