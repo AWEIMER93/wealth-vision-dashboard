@@ -37,13 +37,14 @@ export const ChatBot = () => {
   }, [messages]);
 
   useEffect(() => {
-    // Show trade buttons when the last message mentions executing a trade
+    // Show trade buttons when the last message is from assistant and contains trade instructions
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage?.role === 'user' && 
-        lastMessage.content.toLowerCase().includes('execute') && 
-        lastMessage.content.toLowerCase().includes('trade')) {
+    if (lastMessage?.role === 'assistant' && 
+        lastMessage.content.toLowerCase().includes('tell me what you want to do')) {
       setShowTradeButtons(true);
-    } else {
+    } else if (lastMessage?.role === 'user' && 
+               (lastMessage.content.toLowerCase().includes('buy') || 
+                lastMessage.content.toLowerCase().includes('sell'))) {
       setShowTradeButtons(false);
     }
 
@@ -132,14 +133,14 @@ export const ChatBot = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <Button
                       variant="default"
-                      className="bg-green-600 hover:bg-green-700"
+                      className="bg-[#9b87f5] hover:bg-[#8b77e5] text-white"
                       onClick={() => handleTradeType('buy')}
                     >
                       Buy Shares
                     </Button>
                     <Button
                       variant="default"
-                      className="bg-red-600 hover:bg-red-700"
+                      className="bg-[#9b87f5] hover:bg-[#8b77e5] text-white"
                       onClick={() => handleTradeType('sell')}
                     >
                       Sell Shares
