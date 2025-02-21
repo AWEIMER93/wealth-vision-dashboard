@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -67,16 +68,25 @@ export const useChat = () => {
 
   const getStockData = async (symbol: string) => {
     try {
+      console.log('Fetching stock data for:', symbol);
       const { data, error } = await supabase.functions.invoke('get-stock-data', {
         body: { symbol: symbol.toUpperCase() }
       });
 
-      if (error) throw error;
-      if (!data) throw new Error('No stock data returned');
+      if (error) {
+        console.error('Error from get-stock-data:', error);
+        throw error;
+      }
       
+      if (!data) {
+        console.error('No data returned from get-stock-data');
+        throw new Error('No stock data returned');
+      }
+
+      console.log('Stock data received:', data);
       return data;
     } catch (error) {
-      console.error('Error fetching stock data:', error);
+      console.error('Error in getStockData:', error);
       throw new Error(`Could not fetch data for stock symbol ${symbol}`);
     }
   };
@@ -87,8 +97,8 @@ export const useChat = () => {
       if (lastMessage.role === 'assistant' && lastMessage.content.includes('PIN')) {
         // Extract trade details from previous messages
         const tradeMessage = messages[messages.length - 2].content;
-        const buyMatch = tradeMessage.match(/buy\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i);
-        const sellMatch = tradeMessage.match(/sell\s+(\d+)\s+shares?\s+of\s+([A-Za-z]+)/i);
+        const buyMatch = tradeMessage.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
+        const sellMatch = tradeMessage.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
         
         if (buyMatch || sellMatch) {
           const match = buyMatch || sellMatch;
@@ -278,7 +288,7 @@ export const useChat = () => {
       }
 
       setIsLoading(true);
-      
+
       // First check if this is a trade confirmation
       const tradeConfirmation = await processTradeConfirmation(content);
       if (tradeConfirmation) {
@@ -289,17 +299,27 @@ export const useChat = () => {
         ]);
         return;
       }
-      
-      // Add user message to chat
-      setMessages(prev => [...prev, { role: 'user', content }]);
 
       // Extract stock symbol if present
       const stockSymbol = extractStockSymbol(content);
+      console.log('Extracted stock symbol:', stockSymbol);
+
+      // Add user message to chat
+      setMessages(prev => [...prev, { role: 'user', content }]);
+
       let contextUpdate = {};
+      let stockData;
       
       if (stockSymbol) {
-        // Add stock symbol to context for the edge function
-        contextUpdate = { stockSymbol };
+        try {
+          console.log('Fetching stock data for symbol:', stockSymbol);
+          stockData = await getStockData(stockSymbol);
+          console.log('Stock data received:', stockData);
+          contextUpdate = { stockData };
+        } catch (error) {
+          console.error('Error fetching stock data:', error);
+          throw error;
+        }
       }
 
       // Call the edge function
@@ -310,6 +330,7 @@ export const useChat = () => {
           context: {
             ...context,
             ...contextUpdate,
+            stockData,
             previousMessages: messages.slice(-2) // Send last 2 messages for context
           }
         },
