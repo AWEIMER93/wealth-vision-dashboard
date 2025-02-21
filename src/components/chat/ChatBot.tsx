@@ -133,15 +133,15 @@ export const ChatBot = () => {
                 {showTradeButtons && (
                   <div className="grid grid-cols-2 gap-2">
                     <Button
-                      variant="default"
-                      className="bg-[#4B7BF5] hover:bg-[#3D6DE6] text-white py-6 text-base font-semibold"
+                      variant="outline"
+                      className="bg-black/40 border-white/10 hover:bg-white/5 text-white py-6 text-base font-semibold"
                       onClick={() => handleTradeType('buy')}
                     >
                       Buy Shares
                     </Button>
                     <Button
-                      variant="default"
-                      className="bg-[#4B7BF5] hover:bg-[#3D6DE6] text-white py-6 text-base font-semibold"
+                      variant="outline"
+                      className="bg-black/40 border-white/10 hover:bg-white/5 text-white py-6 text-base font-semibold"
                       onClick={() => handleTradeType('sell')}
                     >
                       Sell Shares
@@ -175,7 +175,7 @@ export const ChatBot = () => {
         <Button
           onClick={() => setIsOpen(true)}
           size="icon"
-          className="h-12 w-12 rounded-full bg-blue-500 hover:bg-blue-600 text-white shadow-lg hover:shadow-xl transition-all"
+          className="h-12 w-12 rounded-full bg-black/40 border-white/10 hover:bg-white/5 text-white shadow-lg hover:shadow-xl transition-all"
         >
           <MessageCircle className="h-6 w-6" />
         </Button>
