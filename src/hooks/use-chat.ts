@@ -39,19 +39,19 @@ const formatNumber = (num: number): string => {
 
 // Helper function to extract stock symbol from message
 const extractStockSymbol = (message: string): string | null => {
-  // First try to match exact stock symbols
-  const symbolMatch = message.match(/\b[A-Z]{1,5}\b/);
-  if (symbolMatch) {
-    return symbolMatch[0];
-  }
-  
-  // Then try to match buy/sell patterns
-  const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
-  const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
+  // Specific patterns for buy/sell commands
+  const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Z]{1,5})/i);
+  const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Z]{1,5})/i);
   
   if (buyMatch || sellMatch) {
     const match = buyMatch || sellMatch;
     return match![2].toUpperCase();
+  }
+  
+  // Only match standalone stock symbols that are clearly intended
+  if (message.includes('price of') || message.includes('price for')) {
+    const symbolMatch = message.match(/(?:of|for)\s+([A-Z]{1,5})/i);
+    return symbolMatch ? symbolMatch[1].toUpperCase() : null;
   }
   
   return null;
@@ -307,18 +307,38 @@ export const useChat = () => {
         return;
       }
 
+      // Check if the message contains trade-related keywords
+      const hasBuyKeyword = /\bbuy\b/i.test(content);
+      const hasSellKeyword = /\bsell\b/i.test(content);
+      const hasTradeKeyword = /\btrade\b/i.test(content);
+      
+      if (hasTradeKeyword && !hasBuyKeyword && !hasSellKeyword) {
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: "To execute a trade, please specify whether you want to buy or sell, and include the stock symbol. For example: 'buy 10 shares of AAPL' or 'sell 5 shares of MSFT'."
+        }]);
+        return;
+      }
+
       // Extract stock symbol and try to get stock data
       const stockSymbol = extractStockSymbol(content);
       console.log('Extracted stock symbol:', stockSymbol);
 
-      let stockData = null;
       if (stockSymbol) {
         try {
-          stockData = await getStockData(stockSymbol);
+          const stockData = await getStockData(stockSymbol);
           console.log('Received stock data:', stockData);
           
+          if (stockData.price === 0) {
+            setMessages(prev => [...prev, { 
+              role: 'assistant', 
+              content: `I couldn't find a valid stock symbol "${stockSymbol}". Please verify the stock symbol and try again.`
+            }]);
+            return;
+          }
+          
           // If we got stock data, add it to the chat
-          const priceMessage = `Current price for ${stockSymbol} is ${formatCurrency(stockData.price)}. Would you like to trade this stock? Please confirm your trade intention (e.g., "buy 10 shares of ${stockSymbol}").`;
+          const priceMessage = `Current price for ${stockSymbol} is ${formatCurrency(stockData.price)}. Would you like to trade this stock? Please specify your trade intention (e.g., "buy 10 shares of ${stockSymbol}").`;
           
           setMessages(prev => [...prev, { 
             role: 'assistant', 
@@ -343,7 +363,6 @@ export const useChat = () => {
           userId: user.id,
           context: {
             ...context,
-            stockData,
             previousMessages: messages.slice(-2)
           }
         },
