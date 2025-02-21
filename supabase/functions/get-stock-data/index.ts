@@ -30,58 +30,34 @@ serve(async (req) => {
       throw new Error('Finnhub API key not configured');
     }
 
-    // Ensure symbol is uppercase and clean any whitespace
     const cleanSymbol = symbol.toUpperCase().trim();
-    
-    // First fetch the quote data
-    const quoteUrl = `https://finnhub.io/api/v1/quote?symbol=${cleanSymbol}&token=${FINNHUB_API_KEY}`;
-    const quoteResponse = await fetch(quoteUrl);
-    if (!quoteResponse.ok) {
-      console.error('Finnhub quote API error:', quoteResponse.status, await quoteResponse.text());
-      throw new Error('Failed to fetch quote from Finnhub API');
+    const url = `https://finnhub.io/api/v1/quote?symbol=${cleanSymbol}&token=${FINNHUB_API_KEY}`;
+    console.log('Fetching from Finnhub:', url);
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error('Finnhub API error:', response.status, await response.text());
+      throw new Error('Failed to fetch from Finnhub API');
     }
 
-    const quoteData = await quoteResponse.json();
-    console.log('Finnhub quote response:', quoteData);
+    const data = await response.json();
+    console.log('Finnhub response:', data);
 
-    // Then fetch company data
-    const companyUrl = `https://finnhub.io/api/v1/stock/profile2?symbol=${cleanSymbol}&token=${FINNHUB_API_KEY}`;
-    const companyResponse = await fetch(companyUrl);
-    if (!companyResponse.ok) {
-      console.error('Finnhub company API error:', companyResponse.status, await companyResponse.text());
-      throw new Error('Failed to fetch company data from Finnhub API');
-    }
-
-    const companyData = await companyResponse.json();
-    console.log('Finnhub company response:', companyData);
-
-    // Make sure we have a valid price
-    if (quoteData.c === null || quoteData.c === undefined || quoteData.c === 0) {
-      console.error('No valid price data available for symbol:', cleanSymbol);
+    if (data.c === null || data.c === undefined) {
+      console.error('No price data available for symbol:', cleanSymbol);
       return new Response(
-        JSON.stringify({ error: `No valid price data available for ${cleanSymbol}` }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Check if we got valid company data
-    if (!companyData || Object.keys(companyData).length === 0) {
-      console.error('No company data available for symbol:', cleanSymbol);
-      return new Response(
-        JSON.stringify({ error: `Invalid stock symbol: ${cleanSymbol}` }),
+        JSON.stringify({ error: `No price data available for ${cleanSymbol}` }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const stockData = {
       symbol: cleanSymbol,
-      companyName: companyData.name,
-      description: companyData.description,
-      price: quoteData.c,
-      percentChange: ((quoteData.c - quoteData.pc) / quoteData.pc) * 100,
-      volume: quoteData.v || 0,
-      marketCap: companyData.marketCapitalization || 0,
-      logo: companyData.logo || null
+      name: cleanSymbol,
+      price: data.c,
+      percentChange: ((data.c - data.pc) / data.pc) * 100,
+      volume: data.v || 0,
+      marketCap: 0
     };
 
     console.log('Returning stock data:', stockData);
