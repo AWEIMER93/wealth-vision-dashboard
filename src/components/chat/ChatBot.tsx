@@ -8,7 +8,6 @@ import { ChatInput } from "./ChatInput";
 import { useChat } from "@/hooks/use-chat";
 import { useAuth } from "@/providers/AuthProvider";
 
-// Quick action types
 interface QuickAction {
   label: string;
   action: string;
@@ -24,6 +23,8 @@ const quickActions: QuickAction[] = [
 export const ChatBot = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [showMenu, setShowMenu] = useState(true);
+  const [showTradeButtons, setShowTradeButtons] = useState(false);
+  const [isEnteringPin, setIsEnteringPin] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { messages, isLoading, sendMessage, clearMessages } = useChat();
   const { user } = useAuth();
@@ -34,10 +35,31 @@ export const ChatBot = () => {
     };
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    // Show trade buttons when the last message mentions executing a trade
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage?.role === 'user' && 
+        lastMessage.content.toLowerCase().includes('execute') && 
+        lastMessage.content.toLowerCase().includes('trade')) {
+      setShowTradeButtons(true);
+    } else {
+      setShowTradeButtons(false);
+    }
+
+    // Check if we're waiting for PIN input
+    setIsEnteringPin(lastMessage?.role === 'assistant' && 
+                    lastMessage.content.toLowerCase().includes('enter your pin'));
+  }, [messages]);
   
   const handleQuickAction = (action: string) => {
     setShowMenu(false);
     sendMessage(action);
+  };
+
+  const handleTradeType = (type: 'buy' | 'sell') => {
+    setShowTradeButtons(false);
+    sendMessage(`I want to ${type} shares`);
   };
 
   const handleMenuReturn = () => {
@@ -106,6 +128,24 @@ export const ChatBot = () => {
                     content={message.content}
                   />
                 ))}
+                {showTradeButtons && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="default"
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => handleTradeType('buy')}
+                    >
+                      Buy Shares
+                    </Button>
+                    <Button
+                      variant="default"
+                      className="bg-red-600 hover:bg-red-700"
+                      onClick={() => handleTradeType('sell')}
+                    >
+                      Sell Shares
+                    </Button>
+                  </div>
+                )}
                 <div ref={messagesEndRef} />
               </>
             )}
@@ -115,9 +155,17 @@ export const ChatBot = () => {
             <ChatInput 
               onSend={(content) => {
                 setShowMenu(false);
-                sendMessage(content);
+                // If entering PIN, mask the input
+                if (isEnteringPin) {
+                  setMessages(prev => [...prev, { role: 'user', content: '****' }]);
+                  sendMessage(content);
+                } else {
+                  sendMessage(content);
+                }
               }} 
               disabled={isLoading}
+              type={isEnteringPin ? 'password' : 'text'}
+              placeholder={isEnteringPin ? "Enter your PIN..." : "Type a message..."}
             />
           </div>
         </Card>
