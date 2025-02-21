@@ -2,6 +2,7 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/providers/AuthProvider";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface Message {
   role: 'assistant' | 'user';
@@ -81,6 +82,7 @@ export const useChat = () => {
   const [context, setContext] = useState<ConversationContext>({});
   const { toast } = useToast();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const clearMessages = () => {
     setMessages([]);
@@ -179,7 +181,7 @@ export const useChat = () => {
                 .from('stocks')
                 .insert({
                   symbol,
-                  name: stockData.name || symbol,
+                  name: stockData.companyName || stockData.description || symbol,  // Use company name from API
                   current_price: stockData.price,
                   shares: 0,
                   price_change: stockData.percentChange || 0,
@@ -264,6 +266,9 @@ export const useChat = () => {
             const formattedPrice = formatCurrency(stockData.price);
             const formattedTotal = formatCurrency(tradeAmount);
             
+            // Invalidate queries to refresh the UI
+            queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+
             return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at ${formattedPrice} per share. Total amount: ${formattedTotal}. Current market data: Price ${formattedPrice}, Change ${formatPercent(stockData.percentChange)}, Volume ${formatNumber(stockData.volume)}. Please allow up to 1 minute for your portfolio balances and individual stock holdings to be updated.`;
           } catch (error: any) {
             console.error('Trade error:', error);
