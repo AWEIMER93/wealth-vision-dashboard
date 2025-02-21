@@ -95,8 +95,20 @@ export const useChat = () => {
           }
           
           try {
+            // Get user's portfolio first
+            const { data: portfolio, error: portfolioError } = await supabase
+              .from('portfolios')
+              .select('*')
+              .eq('user_id', user!.id)
+              .single();
+            
+            if (portfolioError || !portfolio) {
+              throw new Error('Portfolio not found');
+            }
+
             // Get current stock price and stock data
-            const { data: stock, error: stockError } = await supabase
+            let stockData;
+            const { data: existingStock, error: stockError } = await supabase
               .from('stocks')
               .select('*')
               .eq('symbol', symbol)
@@ -110,49 +122,41 @@ export const useChat = () => {
                   .insert({
                     symbol,
                     name: ALLOWED_STOCKS[symbol as keyof typeof ALLOWED_STOCKS],
-                    current_price: 0, // Will be updated by the stock price update function
+                    current_price: 0,
                     shares: 0,
                     price_change: 0,
                     market_cap: 0,
-                    volume: 0
+                    volume: 0,
+                    portfolio_id: portfolio.id
                   })
                   .select()
                   .single();
                 
                 if (createError) throw createError;
-                stock = newStock;
+                stockData = newStock;
               } else {
                 throw new Error('Cannot sell a stock that is not in your portfolio');
               }
+            } else {
+              stockData = existingStock;
             }
 
             // For sell orders, verify user has enough shares
             if (type === 'SELL') {
-              const { data: portfolio } = await supabase
+              const { data: userPortfolio } = await supabase
                 .from('portfolios')
                 .select('*, stocks(*)')
                 .eq('user_id', user!.id)
                 .single();
 
-              const userStock = portfolio?.stocks?.find(s => s.symbol === symbol);
+              const userStock = userPortfolio?.stocks?.find(s => s.symbol === symbol);
               if (!userStock || userStock.shares < shares) {
                 throw new Error(`Insufficient shares. You only have ${userStock?.shares || 0} shares of ${symbol}`);
               }
             }
 
-            // Get user's portfolio
-            const { data: portfolio, error: portfolioError } = await supabase
-              .from('portfolios')
-              .select('*')
-              .eq('user_id', user!.id)
-              .single();
-            
-            if (portfolioError || !portfolio) {
-              throw new Error('Portfolio not found');
-            }
-
             // Calculate trade amount using current stock price
-            const tradeAmount = stock.current_price * shares;
+            const tradeAmount = stockData.current_price * shares;
             
             // Create transaction
             const { error: transactionError } = await supabase
@@ -160,33 +164,33 @@ export const useChat = () => {
               .insert({
                 type,
                 shares,
-                price_per_unit: stock.current_price,
+                price_per_unit: stockData.current_price,
                 total_amount: tradeAmount,
                 portfolio_id: portfolio.id,
-                stock_id: stock.id,
+                stock_id: stockData.id,
               });
             
             if (transactionError) throw transactionError;
 
             // Update or create stock holding
-            const { data: existingStock, error: existingStockError } = await supabase
+            const { data: existingHolding, error: existingHoldingError } = await supabase
               .from('stocks')
               .select('*')
               .eq('portfolio_id', portfolio.id)
               .eq('symbol', symbol)
               .single();
 
-            if (existingStock) {
+            if (existingHolding) {
               // Update existing stock
               const newShares = type === 'BUY' 
-                ? existingStock.shares + shares 
-                : existingStock.shares - shares;
+                ? existingHolding.shares + shares 
+                : existingHolding.shares - shares;
 
               if (newShares > 0) {
                 const { error: updateError } = await supabase
                   .from('stocks')
                   .update({ shares: newShares })
-                  .eq('id', existingStock.id);
+                  .eq('id', existingHolding.id);
                 
                 if (updateError) throw updateError;
               } else {
@@ -194,7 +198,7 @@ export const useChat = () => {
                 const { error: deleteError } = await supabase
                   .from('stocks')
                   .delete()
-                  .eq('id', existingStock.id);
+                  .eq('id', existingHolding.id);
                 
                 if (deleteError) throw deleteError;
               }
@@ -206,10 +210,10 @@ export const useChat = () => {
                   symbol,
                   name: ALLOWED_STOCKS[symbol as keyof typeof ALLOWED_STOCKS],
                   shares,
-                  current_price: stock.current_price,
-                  price_change: stock.price_change,
-                  market_cap: stock.market_cap,
-                  volume: stock.volume,
+                  current_price: stockData.current_price,
+                  price_change: stockData.price_change,
+                  market_cap: stockData.market_cap,
+                  volume: stockData.volume,
                   portfolio_id: portfolio.id
                 });
               
@@ -225,9 +229,9 @@ export const useChat = () => {
               .from('portfolios')
               .update({
                 total_holding: newTotal,
-                active_stocks: type === 'BUY' && !existingStock 
+                active_stocks: type === 'BUY' && !existingHolding 
                   ? (portfolio.active_stocks || 0) + 1 
-                  : type === 'SELL' && existingStock?.shares === shares
+                  : type === 'SELL' && existingHolding?.shares === shares
                   ? (portfolio.active_stocks || 0) - 1
                   : portfolio.active_stocks
               })
@@ -236,7 +240,7 @@ export const useChat = () => {
             if (portfolioUpdateError) throw portfolioUpdateError;
 
             // Format the response with proper number formatting
-            const formattedPrice = formatCurrency(stock.current_price);
+            const formattedPrice = formatCurrency(stockData.current_price);
             const formattedTotal = formatCurrency(tradeAmount);
             
             return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at ${formattedPrice} per share. Total amount: ${formattedTotal}. Please allow up to 1 minute for your portfolio balances and individual stock holdings to be updated.`;
