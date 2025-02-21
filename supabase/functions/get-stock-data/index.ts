@@ -28,32 +28,6 @@ serve(async (req) => {
       throw new Error('Finnhub API key not configured');
     }
 
-    // First, search for the symbol to validate it exists
-    const searchResponse = await fetch(
-      `https://finnhub.io/api/v1/search?q=${symbol}&token=${FINNHUB_API_KEY}`
-    );
-    const searchData = await searchResponse.json();
-
-    // Find exact symbol match from US exchanges (NYSE, NASDAQ)
-    const exactMatch = searchData.result?.find(
-      (item: any) => 
-        item.symbol === symbol && 
-        item.type === 'Common Stock' && 
-        ['NYSE', 'NASDAQ'].includes(item.exchange)
-    );
-
-    if (!exactMatch) {
-      return new Response(
-        JSON.stringify({ 
-          error: `Could not find stock ${symbol} on NYSE or NASDAQ exchanges.`
-        }),
-        { 
-          status: 404, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        }
-      );
-    }
-
     // Get quote data
     const quoteResponse = await fetch(
       `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_API_KEY}`
@@ -66,22 +40,25 @@ serve(async (req) => {
     );
     const profileData = await profileResponse.json();
 
+    // If we can't get a price, the stock is not tradeable
     if (!quoteData.c) {
-      throw new Error(`Could not get current price for ${symbol}`);
+      return new Response(
+        JSON.stringify({ error: `Could not get current price for ${symbol}. Please verify the stock symbol.` }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     const stockData = {
       symbol: symbol,
-      name: profileData.name || exactMatch.description || symbol,
+      name: profileData.name || symbol,
       price: quoteData.c,
       percentChange: ((quoteData.c - quoteData.pc) / quoteData.pc) * 100,
-      marketCap: profileData.marketCapitalization,
+      marketCap: profileData.marketCapitalization || 0,
       volume: quoteData.v || 0,
       high: quoteData.h,
       low: quoteData.l,
       open: quoteData.o,
-      previousClose: quoteData.pc,
-      exchange: exactMatch.exchange
+      previousClose: quoteData.pc
     };
 
     return new Response(
