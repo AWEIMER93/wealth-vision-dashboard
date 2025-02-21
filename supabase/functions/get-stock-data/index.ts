@@ -28,6 +28,32 @@ serve(async (req) => {
       throw new Error('Finnhub API key not configured');
     }
 
+    // First, search for the symbol to validate it exists
+    const searchResponse = await fetch(
+      `https://finnhub.io/api/v1/search?q=${symbol}&token=${FINNHUB_API_KEY}`
+    );
+    const searchData = await searchResponse.json();
+
+    // Find exact symbol match from US exchanges (NYSE, NASDAQ)
+    const exactMatch = searchData.result?.find(
+      (item: any) => 
+        item.symbol === symbol && 
+        item.type === 'Common Stock' && 
+        ['NYSE', 'NASDAQ'].includes(item.exchange)
+    );
+
+    if (!exactMatch) {
+      return new Response(
+        JSON.stringify({ 
+          error: `Could not find stock ${symbol} on NYSE or NASDAQ exchanges.`
+        }),
+        { 
+          status: 404, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
     // Get quote data
     const quoteResponse = await fetch(
       `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_API_KEY}`
@@ -41,12 +67,12 @@ serve(async (req) => {
     const profileData = await profileResponse.json();
 
     if (!quoteData.c) {
-      throw new Error(`Invalid stock symbol: ${symbol}`);
+      throw new Error(`Could not get current price for ${symbol}`);
     }
 
     const stockData = {
       symbol: symbol,
-      name: profileData.name || symbol,
+      name: profileData.name || exactMatch.description || symbol,
       price: quoteData.c,
       percentChange: ((quoteData.c - quoteData.pc) / quoteData.pc) * 100,
       marketCap: profileData.marketCapitalization,
@@ -54,7 +80,8 @@ serve(async (req) => {
       high: quoteData.h,
       low: quoteData.l,
       open: quoteData.o,
-      previousClose: quoteData.pc
+      previousClose: quoteData.pc,
+      exchange: exactMatch.exchange
     };
 
     return new Response(
