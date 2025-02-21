@@ -57,7 +57,6 @@ export const ChatBot = () => {
 
   const handleTradeType = (type: 'buy' | 'sell') => {
     setShowTradeButtons(false);
-    // Add assistant message first
     setMessages(prev => [...prev, {
       role: 'assistant',
       content: `Which stock do you want to ${type}?`
@@ -157,9 +156,7 @@ export const ChatBot = () => {
             <ChatInput 
               onSend={(content) => {
                 setShowMenu(false);
-                // If entering PIN, mask the input
                 if (isEnteringPin) {
-                  setMessages(prev => [...prev, { role: 'user', content: '****' }]);
                   sendMessage(content);
                 } else {
                   sendMessage(content);
