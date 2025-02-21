@@ -5,42 +5,89 @@ import { Mic, Square } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/providers/AuthProvider";
 import Vapi from "@vapi-ai/web";
-
-// Initialize Vapi client
-const vapi = new Vapi("your-api-key-here");
-const assistantId = "your-assistant-id-here";
+import { supabase } from "@/integrations/supabase/client";
 
 export const VoiceAgent = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [vapi, setVapi] = useState<Vapi | null>(null);
 
   useEffect(() => {
-    // Initialize Vapi
-    vapi.start(assistantId);
-  }, []);
+    const initVapi = async () => {
+      try {
+        const { data: { vapi_key } } = await supabase.functions.invoke('get-secret', {
+          body: { key: 'VAPI_API_KEY' }
+        });
+        
+        if (vapi_key) {
+          const vapiInstance = new Vapi(vapi_key);
+          setVapi(vapiInstance);
+        }
+      } catch (error) {
+        console.error('Error initializing Vapi:', error);
+        toast({
+          title: "Error",
+          description: "Failed to initialize voice assistant",
+          variant: "destructive",
+        });
+      }
+    };
+
+    initVapi();
+  }, [toast]);
 
   const startRecording = async () => {
+    if (!vapi) {
+      toast({
+        title: "Error",
+        description: "Voice assistant not initialized",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setIsRecording(true);
       setIsProcessing(true);
 
-      // Start the conversation with user context
-      const conversation = await vapi.start(assistantId, {
-        userContext: {
-          userId: user?.id,
-          email: user?.email,
+      // Get user's portfolio data for context
+      const { data: portfolioData } = await supabase
+        .from('portfolios')
+        .select('*, stocks(*)')
+        .eq('user_id', user?.id)
+        .single();
+
+      // Start a new call with the assistant
+      const call = await vapi.call({
+        assistant: "your-assistant-id", // Replace with your assistant ID
+        prompt: {
+          messages: [{
+            role: "system",
+            content: `You are a portfolio management voice assistant. The user's portfolio contains:
+              ${portfolioData ? `
+              - Total Holdings: $${portfolioData.total_holding || 0}
+              - Total Profit: ${portfolioData.total_profit || 0}%
+              - Active Stocks: ${portfolioData.active_stocks || 0}
+              ` : 'No portfolio data available'}
+              
+              You can help with:
+              1. Checking portfolio status
+              2. Getting stock information
+              3. Executing trades (requires PIN verification)
+              
+              Always verify user's identity before making trades.`
+          }]
         }
       });
 
-      // Handle messages from the assistant
-      conversation.on('message', (message) => {
+      // Process assistant response
+      call.addListener('message', (message) => {
         console.log('Assistant:', message);
       });
 
-      // Handle errors
-      conversation.on('error', (error) => {
+      call.addListener('error', (error) => {
         console.error('Vapi error:', error);
         toast({
           title: "Error",
@@ -51,8 +98,7 @@ export const VoiceAgent = () => {
         setIsProcessing(false);
       });
 
-      // Handle conversation end
-      conversation.on('end', () => {
+      call.addListener('end', () => {
         setIsRecording(false);
         setIsProcessing(false);
       });
@@ -70,7 +116,7 @@ export const VoiceAgent = () => {
   };
 
   const stopRecording = () => {
-    if (isRecording) {
+    if (isRecording && vapi) {
       vapi.stop();
       setIsRecording(false);
       setIsProcessing(false);
