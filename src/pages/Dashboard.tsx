@@ -165,6 +165,7 @@ const Dashboard = () => {
         },
         () => {
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
+          updatePerformanceData();
         }
       )
       .subscribe();
@@ -181,6 +182,7 @@ const Dashboard = () => {
         },
         () => {
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
+          updatePerformanceData();
         }
       )
       .subscribe();
@@ -197,6 +199,7 @@ const Dashboard = () => {
         },
         (payload) => {
           queryClient.invalidateQueries({ queryKey: ['portfolio', user.id] });
+          updatePerformanceData();
           
           if (payload.eventType === 'INSERT') {
             const { type, shares } = payload.new;

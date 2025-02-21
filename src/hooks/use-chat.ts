@@ -1,7 +1,9 @@
+
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/providers/AuthProvider";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface Message {
   role: 'assistant' | 'user';
@@ -13,74 +15,13 @@ interface ConversationContext {
   awaitingRisk?: boolean;
 }
 
-// Helper function to extract trade details
-const extractTradeDetails = (message: string): { type: 'BUY' | 'SELL' | null, shares: number, symbol: string } | null => {
-  const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Z]{1,5})/i);
-  const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Z]{1,5})/i);
-  
-  if (buyMatch || sellMatch) {
-    const match = buyMatch || sellMatch;
-    return {
-      type: buyMatch ? 'BUY' : 'SELL',
-      shares: parseInt(match![1]),
-      symbol: match![2].toUpperCase()
-    };
-  }
-  return null;
-};
-
-// Helper function to format currency
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(amount);
-};
-
-// Helper function to format percentages
-const formatPercent = (value: number): string => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'percent',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value / 100);
-};
-
-// Helper function to format large numbers with commas
-const formatNumber = (num: number): string => {
-  return new Intl.NumberFormat('en-US').format(num);
-};
-
-// Helper function to extract stock symbol from message
-const extractStockSymbol = (message: string): string | null => {
-  // First try to match symbols after "price of" or "price for"
-  if (message.toLowerCase().includes('price of') || message.toLowerCase().includes('price for')) {
-    const priceMatch = message.match(/price (?:of|for) ([A-Z]{1,5})/i);
-    if (priceMatch) {
-      return priceMatch[1].toUpperCase();
-    }
-  }
-
-  // Then try to match buy/sell patterns
-  const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Z]{1,5})/i);
-  const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Z]{1,5})/i);
-  
-  if (buyMatch || sellMatch) {
-    const match = buyMatch || sellMatch;
-    return match![2].toUpperCase();
-  }
-  
-  return null;
-};
-
 export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [context, setContext] = useState<ConversationContext>({});
   const { toast } = useToast();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const clearMessages = () => {
     setMessages([]);
@@ -89,23 +30,13 @@ export const useChat = () => {
 
   const getStockData = async (symbol: string) => {
     try {
-      console.log('Requesting stock data for:', symbol);
       const result = await supabase.functions.invoke('get-stock-data', {
         body: { symbol }
       });
       
-      console.log('Stock data response:', result);
-
-      if (result.error) {
-        console.error('Stock data error:', result.error);
-        throw new Error(result.error.message);
-      }
-
-      if (!result.data) {
-        console.error('No stock data received');
-        throw new Error('No stock data available');
-      }
-
+      if (result.error) throw new Error(result.error.message);
+      if (!result.data) throw new Error('No stock data available');
+      
       return result.data;
     } catch (error) {
       console.error('getStockData error:', error);
@@ -117,7 +48,6 @@ export const useChat = () => {
     if (message === '1234' && messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
       if (lastMessage.role === 'assistant' && lastMessage.content.includes('PIN')) {
-        // Extract trade details from previous messages
         const tradeMessage = messages[messages.length - 2].content;
         const buyMatch = tradeMessage.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
         const sellMatch = tradeMessage.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
@@ -174,12 +104,12 @@ export const useChat = () => {
               if (type === 'SELL') {
                 throw new Error('Cannot sell a stock that is not in your portfolio');
               }
-              // Create new stock record for buying
+
               const { data: newStock, error: createError } = await supabase
                 .from('stocks')
                 .insert({
                   symbol,
-                  name: stockData.name || symbol,
+                  name: stockData.companyName || symbol,
                   current_price: stockData.price,
                   shares: 0,
                   price_change: stockData.percentChange || 0,
@@ -257,14 +187,13 @@ export const useChat = () => {
                   : portfolio.active_stocks
               })
               .eq('id', portfolio.id);
-            
+
             if (portfolioUpdateError) throw portfolioUpdateError;
 
-            // Format the response with proper number formatting
-            const formattedPrice = formatCurrency(stockData.price);
-            const formattedTotal = formatCurrency(tradeAmount);
-            
-            return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at ${formattedPrice} per share. Total amount: ${formattedTotal}. Current market data: Price ${formattedPrice}, Change ${formatPercent(stockData.percentChange)}, Volume ${formatNumber(stockData.volume)}. Please allow up to 1 minute for your portfolio balances and individual stock holdings to be updated.`;
+            // Invalidate queries to refresh the UI
+            queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+
+            return `Trade executed successfully! ${type} ${shares} shares of ${symbol} at $${stockData.price.toLocaleString()} per share. Total amount: $${tradeAmount.toLocaleString()}`;
           } catch (error: any) {
             console.error('Trade error:', error);
             throw new Error(`Failed to execute trade: ${error.message}`);
@@ -273,34 +202,6 @@ export const useChat = () => {
       }
     }
     return null;
-  };
-
-  const formatResponse = (text: string): string => {
-    // Format currency values ($X.XX or $X)
-    text = text.replace(
-      /\$\d+(?:,\d{3})*(?:\.\d{2})?/g,
-      match => {
-        const number = parseFloat(match.replace(/[$,]/g, ''));
-        return formatCurrency(number);
-      }
-    );
-
-    // Format percentage values (X% or X.XX%)
-    text = text.replace(
-      /(?:\+|-)?\d+(?:\.\d{1,2})?%/g,
-      match => {
-        const number = parseFloat(match.replace(/%/g, ''));
-        return formatPercent(number);
-      }
-    );
-
-    // Format large numbers with commas
-    text = text.replace(
-      /(?<![.$])\b\d{4,}\b(?!\s*%)/g,
-      match => formatNumber(parseInt(match))
-    );
-
-    return text;
   };
 
   const sendMessage = async (content: string) => {
@@ -320,21 +221,28 @@ export const useChat = () => {
         setMessages(prev => [
           ...prev,
           { role: 'user', content: '****' }, // Mask PIN
-          { role: 'assistant', content: formatResponse(tradeConfirmation) }
+          { role: 'assistant', content: tradeConfirmation }
         ]);
         return;
       }
 
-      // Check for trade details first
-      const tradeDetails = extractTradeDetails(content);
-      if (tradeDetails) {
+      // Check for trade command
+      const buyMatch = content.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
+      const sellMatch = content.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Za-z]+)/i);
+
+      if (buyMatch || sellMatch) {
+        const match = buyMatch || sellMatch;
+        const type = buyMatch ? 'buy' : 'sell';
+        const shares = parseInt(match![1]);
+        const symbol = match![2].toUpperCase();
+
         try {
-          const stockData = await getStockData(tradeDetails.symbol);
-          const totalCost = stockData.price * tradeDetails.shares;
+          const stockData = await getStockData(symbol);
+          const totalCost = stockData.price * shares;
           
-          const tradeMessage = `Current price for ${tradeDetails.symbol} is ${formatCurrency(stockData.price)}. ` +
-            `Total cost for ${tradeDetails.shares} shares will be ${formatCurrency(totalCost)}. ` +
-            `Please enter your PIN (1234) to confirm this ${tradeDetails.type.toLowerCase()} order.`;
+          const tradeMessage = `Current price for ${symbol} is $${stockData.price.toLocaleString()}. ` +
+            `Total cost for ${shares} shares will be $${totalCost.toLocaleString()}. ` +
+            `Please enter your PIN (1234) to confirm this ${type} order.`;
           
           setMessages(prev => [...prev, { 
             role: 'assistant', 
@@ -345,44 +253,13 @@ export const useChat = () => {
           console.error('Failed to get stock data:', error);
           setMessages(prev => [...prev, { 
             role: 'assistant', 
-            content: `I couldn't get the current price for ${tradeDetails.symbol}. Please try again.`
+            content: `I couldn't get the current price for ${symbol}. Please verify the stock symbol and try again.`
           }]);
           return;
         }
       }
 
-      // Then check for price queries
-      const stockSymbol = extractStockSymbol(content);
-      if (stockSymbol) {
-        try {
-          const stockData = await getStockData(stockSymbol);
-          if (stockData.price === 0) {
-            setMessages(prev => [...prev, { 
-              role: 'assistant', 
-              content: `I couldn't find a valid stock symbol "${stockSymbol}". Please verify the stock symbol and try again.`
-            }]);
-            return;
-          }
-          
-          const priceMessage = `Current price for ${stockSymbol} is ${formatCurrency(stockData.price)}. To trade this stock, please specify quantity (e.g., "buy 10 shares of ${stockSymbol}").`;
-          
-          setMessages(prev => [...prev, { 
-            role: 'assistant', 
-            content: priceMessage
-          }]);
-          return;
-        } catch (error) {
-          console.error('Failed to get stock data:', error);
-          const errorMessage = `I couldn't get the current price for ${stockSymbol}. Please verify the stock symbol and try again.`;
-          setMessages(prev => [...prev, { 
-            role: 'assistant', 
-            content: errorMessage
-          }]);
-          return;
-        }
-      }
-
-      // If no trade or stock query, proceed with chat
+      // Handle general chat messages
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
           message: content,
@@ -394,17 +271,12 @@ export const useChat = () => {
         },
       });
 
-      if (error) {
-        throw error;
-      }
-
-      if (!data?.reply) {
-        throw new Error('No response from chat function');
-      }
+      if (error) throw error;
+      if (!data?.reply) throw new Error('No response from chat function');
 
       setMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: formatResponse(data.reply)
+        content: data.reply
       }]);
 
     } catch (error: any) {
