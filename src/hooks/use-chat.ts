@@ -14,6 +14,15 @@ interface ConversationContext {
   awaitingRisk?: boolean;
 }
 
+// Allowed stock symbols
+const ALLOWED_STOCKS = {
+  'AAPL': 'Apple',
+  'TSLA': 'Tesla',
+  'MSFT': 'Microsoft',
+  'GOOG': 'Google',
+  'NVDA': 'Nvidia'
+};
+
 // Helper function to format currency
 const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-US', {
@@ -36,6 +45,22 @@ const formatPercent = (value: number): string => {
 // Helper function to format large numbers with commas
 const formatNumber = (num: number): string => {
   return new Intl.NumberFormat('en-US').format(num);
+};
+
+// Helper function to validate stock symbol
+const validateStockSymbol = (symbol: string): boolean => {
+  return Object.keys(ALLOWED_STOCKS).includes(symbol.toUpperCase());
+};
+
+// Helper function to extract stock symbol from message
+const extractStockSymbol = (message: string): string | null => {
+  const symbols = Object.keys(ALLOWED_STOCKS);
+  for (const symbol of symbols) {
+    if (message.toUpperCase().includes(symbol)) {
+      return symbol;
+    }
+  }
+  return null;
 };
 
 export const useChat = () => {
@@ -63,22 +88,13 @@ export const useChat = () => {
           const match = buyMatch || sellMatch;
           const type = buyMatch ? 'BUY' : 'SELL';
           const shares = parseInt(match![1]);
-          let symbol = match![2].toUpperCase();
-          
-          const stockMappings: { [key: string]: string } = {
-            'APPLE': 'AAPL',
-            'TESLA': 'TSLA',
-            'MICROSOFT': 'MSFT',
-            'GOOGLE': 'GOOG',
-            'NVIDIA': 'NVDA',
-          };
-          
-          if (stockMappings[symbol]) {
-            symbol = stockMappings[symbol];
+          const symbol = match![2].toUpperCase();
+
+          if (!validateStockSymbol(symbol)) {
+            throw new Error(`Invalid stock symbol. Available symbols: ${Object.keys(ALLOWED_STOCKS).join(', ')}`);
           }
           
           try {
-            // Start transaction
             // Get current stock price and stock data
             const { data: stock, error: stockError } = await supabase
               .from('stocks')
@@ -86,10 +102,44 @@ export const useChat = () => {
               .eq('symbol', symbol)
               .single();
             
-            if (stockError || !stock) {
-              throw new Error('Stock not found');
+            if (stockError) {
+              // If stock doesn't exist in our database, create it with initial data
+              if (type === 'BUY') {
+                const { data: newStock, error: createError } = await supabase
+                  .from('stocks')
+                  .insert({
+                    symbol,
+                    name: ALLOWED_STOCKS[symbol as keyof typeof ALLOWED_STOCKS],
+                    current_price: 0, // Will be updated by the stock price update function
+                    shares: 0,
+                    price_change: 0,
+                    market_cap: 0,
+                    volume: 0
+                  })
+                  .select()
+                  .single();
+                
+                if (createError) throw createError;
+                stock = newStock;
+              } else {
+                throw new Error('Cannot sell a stock that is not in your portfolio');
+              }
             }
-            
+
+            // For sell orders, verify user has enough shares
+            if (type === 'SELL') {
+              const { data: portfolio } = await supabase
+                .from('portfolios')
+                .select('*, stocks(*)')
+                .eq('user_id', user!.id)
+                .single();
+
+              const userStock = portfolio?.stocks?.find(s => s.symbol === symbol);
+              if (!userStock || userStock.shares < shares) {
+                throw new Error(`Insufficient shares. You only have ${userStock?.shares || 0} shares of ${symbol}`);
+              }
+            }
+
             // Get user's portfolio
             const { data: portfolio, error: portfolioError } = await supabase
               .from('portfolios')
@@ -101,6 +151,7 @@ export const useChat = () => {
               throw new Error('Portfolio not found');
             }
 
+            // Calculate trade amount using current stock price
             const tradeAmount = stock.current_price * shares;
             
             // Create transaction
@@ -153,7 +204,7 @@ export const useChat = () => {
                 .from('stocks')
                 .insert({
                   symbol,
-                  name: stock.name,
+                  name: ALLOWED_STOCKS[symbol as keyof typeof ALLOWED_STOCKS],
                   shares,
                   current_price: stock.current_price,
                   price_change: stock.price_change,
@@ -249,6 +300,15 @@ export const useChat = () => {
       // Add user message to chat
       setMessages(prev => [...prev, { role: 'user', content }]);
 
+      // Extract stock symbol if present
+      const stockSymbol = extractStockSymbol(content);
+      let contextUpdate = {};
+      
+      if (stockSymbol) {
+        // Add stock symbol to context for the edge function
+        contextUpdate = { stockSymbol };
+      }
+
       // Call the edge function
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
@@ -256,6 +316,7 @@ export const useChat = () => {
           userId: user.id,
           context: {
             ...context,
+            ...contextUpdate,
             previousMessages: messages.slice(-2) // Send last 2 messages for context
           }
         },
@@ -271,17 +332,6 @@ export const useChat = () => {
       }
 
       let formattedReply = formatResponse(data.reply);
-
-      // Update context based on the conversation
-      if (formattedReply.toLowerCase().includes("risk tolerance")) {
-        setContext(prev => ({
-          ...prev,
-          awaitingRisk: true
-        }));
-      } else {
-        // Reset context after getting recommendations
-        setContext({});
-      }
 
       // Add assistant's response to chat
       setMessages(prev => [...prev, { 
