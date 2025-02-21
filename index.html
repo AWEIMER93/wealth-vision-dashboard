@@ -79,7 +79,10 @@
             });
           }
         } else if (vapiInstance) {
-          vapiInstance.destroy();
+          // Properly cleanup the Vapi instance
+          if (typeof vapiInstance.unmount === 'function') {
+            vapiInstance.unmount();
+          }
           vapiInstance = null;
         }
       }
