@@ -39,19 +39,21 @@ const formatNumber = (num: number): string => {
 
 // Helper function to extract stock symbol from message
 const extractStockSymbol = (message: string): string | null => {
-  // Specific patterns for buy/sell commands
+  // First try to match symbols after "price of" or "price for"
+  if (message.toLowerCase().includes('price of') || message.toLowerCase().includes('price for')) {
+    const priceMatch = message.match(/price (?:of|for) ([A-Z]{1,5})/i);
+    if (priceMatch) {
+      return priceMatch[1].toUpperCase();
+    }
+  }
+
+  // Then try to match buy/sell patterns
   const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Z]{1,5})/i);
   const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+(?:of\s+)?([A-Z]{1,5})/i);
   
   if (buyMatch || sellMatch) {
     const match = buyMatch || sellMatch;
     return match![2].toUpperCase();
-  }
-  
-  // Only match standalone stock symbols that are clearly intended
-  if (message.includes('price of') || message.includes('price for')) {
-    const symbolMatch = message.match(/(?:of|for)\s+([A-Z]{1,5})/i);
-    return symbolMatch ? symbolMatch[1].toUpperCase() : null;
   }
   
   return null;
